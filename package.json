@@ -1,0 +1,26 @@
+{
+  "name": "fanboy-http",
+  "version": "0.0.0",
+  "description": "fanboy HTTP API",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "export NODE_TEST=1 ; tap --tap test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/michaelnisi/fanboy-http.git"
+  },
+  "keywords": [
+    "fanboy",
+    "http"
+  ],
+  "author": "Michael Nisi <michael.nisi@gmail.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/michaelnisi/fanboy-http/issues"
+  },
+  "homepage": "https://github.com/michaelnisi/fanboy-http"
+}
