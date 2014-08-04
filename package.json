@@ -7,7 +7,9 @@
     "test": "test"
   },
   "scripts": {
-    "test": "export NODE_TEST=1 ; tap --tap test/*.js"
+    "test": "export NODE_TEST=1 ; tap --tap test/*.js",
+    "start": "node start.js > /dev/null & echo $! > .pid",
+    "stop": "kill `< .pid`"
   },
   "repository": {
     "type": "git",
@@ -22,5 +24,19 @@
   "bugs": {
     "url": "https://github.com/michaelnisi/fanboy-http/issues"
   },
-  "homepage": "https://github.com/michaelnisi/fanboy-http"
+  "homepage": "https://github.com/michaelnisi/fanboy-http",
+  "dependencies": {
+    "bunyan": "0.23.x",
+    "fanboy": "0.2.x",
+    "leveldown": "0.10.x",
+    "levelup": "0.18.x",
+    "mkdirp": "0.5.x",
+    "routes": "1.2.x"
+  },
+  "devDependencies": {
+    "tap": "0.4.x"
+  },
+  "engines": {
+    "node": ">=0.10"
+  }
 }
