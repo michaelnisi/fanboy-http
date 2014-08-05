@@ -11,41 +11,6 @@ test('constructor', function (t) {
   t.end()
 })
 
-test('match', function (t) {
-  var f = fanboy_http.FanboyService.prototype.match.bind(fanboy_http())
-  t.is(typeof f, 'function')
-  function reduce (route) { // don't have actual route
-    return {
-      query: route.params.query
-    }
-  }
-  ['/search', '/suggest'].forEach(function (verb) {
-    var wanted = [
-      undefined
-    , undefined
-    , undefined
-    , undefined
-    , undefined
-    , { query: '?q=abc' }
-    , { query: '?q=abc+def' }
-    , { query: '?q=abc+def&max=10' }
-    ]
-    ;[
-      f(undefined)
-    , f(null)
-    , f('')
-    , f(verb)
-    , f(verb + '?q=')
-    , reduce(f(verb + '?q=abc'))
-    , reduce(f(verb + '?q=abc+def'))
-    , reduce(f(verb + '?q=abc+def&max=10'))
-    ].forEach(function (found, i) {
-      t.deepEqual(found, wanted[i])
-    })
-  })
-  t.end()
-})
-
 test('defaults', function (t) {
   var f = fanboy_http.defaults
     , noop = fanboy_http.noop
