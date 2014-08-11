@@ -54,6 +54,7 @@ test('parse', function (t) {
   , 'abc'
   , 'abc'
   , 'abc'
+  , 'abc'
   ]
   ;[
     f(null)
@@ -66,8 +67,15 @@ test('parse', function (t) {
   , f('?q= abc')
   , f('?q=abc ')
   , f('?q= abc ')
+  , f('?q=abc+abc')
   ].forEach(function (found, i) {
     t.deepEqual(found, wanted[i])
   })
+  t.end()
+})
+
+test('route', function (t) {
+  var f = new fanboy_http()
+  t.is(f.route({url: '/'}).route, '/*')
   t.end()
 })

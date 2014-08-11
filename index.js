@@ -43,20 +43,23 @@ function streamError (log, stream, req, res) {
 
 function parse (query) {
   var q = querystring.parse(query)['?q']
-  return q ? q.trim() : undefined
+  if (q) {
+    return q.split(' ').filter(function (token, i, tokens) {
+      return i === tokens.indexOf(token)
+    }).join(' ').trim()
+  } else {
+    return undefined
+  }
 }
 
 function suggest (req, res, params) {
   var query = parse(params.query)
   if (!query) {
     req.url = '/'
-    return this.route(req, res)
+    return this.handle(req, res)
   }
-  var log = this.log
-    , opts = this.opts
-    ;
-  log.info('suggest: %s', query)
-  var stream = fanboy.suggest(opts)
+  this.log.info('suggest: %s', query)
+  var stream = fanboy.suggest(this.opts)
     , ok = false
     ;
   stream.write(query)
@@ -64,7 +67,7 @@ function suggest (req, res, params) {
   stream.once('readable', function () {
     ok = true
   })
-  stream.once('error', streamError(log, stream, req, res))
+  stream.once('error', streamError(this.log, stream, req, res))
   stream.end(function () {
     res.end(ok ? undefined : '[]\n')
   })
@@ -74,15 +77,12 @@ function search (req, res, params) {
   var query = parse(params.query)
   if (!query) {
     req.url = '/'
-    return this.route(req, res)
+    return this.handle(req, res)
   }
-  var log = this.log
-    , opts = this.opts
-    ;
-  log.info('search: %s', query)
-  var stream = fanboy.search(opts)
+  this.log.info('search: %s', query)
+  var stream = fanboy.search(this.opts)
   stream.pipe(res)
-  stream.once('error', streamError(log, stream, req, res))
+  stream.once('error', streamError(this.log, stream, req, res))
   stream.end(query, function () {
     res.end()
   })
@@ -107,13 +107,13 @@ function defaults (opts) {
   return opts
 }
 
-function createRouter () {
-  var router = routes()
-  router.addRoute('/ping', ping.bind(this))
-  router.addRoute('/suggest:query', suggest.bind(this))
-  router.addRoute('/search:query', search.bind(this))
-  router.addRoute('/*', notfound.bind(this))
-  router.addRoute('/', notfound.bind(this))
+function createRouter (scope) {
+  var router = this.router = routes()
+  router.addRoute('/ping', ping.bind(scope))
+  router.addRoute('/suggest:query', suggest.bind(scope))
+  router.addRoute('/search:query', search.bind(scope))
+  router.addRoute('/*', notfound.bind(scope))
+  router.addRoute('/', notfound.bind(scope))
   return router
 }
 
@@ -121,14 +121,16 @@ function FanboyService (opts) {
   opts = defaults(opts)
   if (!(this instanceof FanboyService)) return new FanboyService(opts)
   util._extend(this, opts)
-  this.router = createRouter()
+  this.router = createRouter(this)
   mkdirp.sync(this.location)
 }
 
 FanboyService.prototype.route = function (req, res) {
-  var router = this.router
-    , rt = router.match(req.url)
-    ;
+  return this.router.match(req.url)
+}
+
+FanboyService.prototype.handle = function (req, res) {
+  var rt = this.route(req, res)
   rt.fn(req, res, rt.params)
 }
 
@@ -139,7 +141,7 @@ function init (svc, db) {
   , media: 'podcast'
   }
   svc.server = http.createServer(function (req, res) {
-    svc.route(req, res)
+    svc.handle(req, res)
   }).listen(svc.port)
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "fanboy-http",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "fanboy HTTP API",
   "main": "index.js",
   "directories": {
@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/michaelnisi/fanboy-http",
   "dependencies": {
-    "bunyan": "0.23.x",
+    "bunyan": "1.0.x",
     "fanboy": "0.2.x",
     "leveldown": "0.10.x",
     "levelup": "0.18.x",
