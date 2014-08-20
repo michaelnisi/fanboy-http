@@ -1,10 +1,9 @@
 
-// fanboy-http - fanboy HTTP API
+// fanboy-http - Fanboy HTTP API
 
 module.exports = exports = FanboyService
 
 var assert = require('assert')
-  , bunyan = require('bunyan')
   , fanboy = require('fanboy')
   , http = require('http')
   , levelup = require('levelup')
@@ -23,13 +22,14 @@ var debug = function () {
     } : noop
 }()
 
-var _warn = {
-  'JSON contained no results':0
-, 'no results':1
-}
+var _warn = [
+  'JSON contained no results'
+, 'no results'
+, 'cached null'
+]
 
 function warn (er) {
-  return er.message in _warn
+  return er.notFound || _warn.indexOf(er.message) > -1
 }
 
 function streamError (log, stream, req, res) {
@@ -59,7 +59,7 @@ function suggest (req, res, params) {
     return this.handle(req, res)
   }
   this.log.info('suggest: %s', query)
-  var stream = fanboy.suggest(this.opts)
+  var stream = this.fanboy.suggest()
     , ok = false
     ;
   stream.write(query)
@@ -80,7 +80,7 @@ function search (req, res, params) {
     return this.handle(req, res)
   }
   this.log.info('search: %s', query)
-  var stream = fanboy.search(this.opts)
+  var stream = this.fanboy.search()
   stream.pipe(res)
   stream.once('error', streamError(this.log, stream, req, res))
   stream.end(query, function () {
@@ -99,14 +99,6 @@ function notfound (req, res) {
   res.end('not found\n')
 }
 
-function defaults (opts) {
-  opts = opts || Object.create(null)
-  opts.location = opts.location || '/tmp/fanboy-http'
-  opts.port = opts.port || 8383
-  opts.log = opts.log || { info:noop, warn:noop, debug:noop, error:noop }
-  return opts
-}
-
 function createRouter (scope) {
   var router = this.router = routes()
   router.addRoute('/ping', ping.bind(scope))
@@ -115,6 +107,15 @@ function createRouter (scope) {
   router.addRoute('/*', notfound.bind(scope))
   router.addRoute('/', notfound.bind(scope))
   return router
+}
+
+function defaults (opts) {
+  opts = opts || Object.create(null)
+  opts.location = opts.location || '/tmp/fanboy-http'
+  opts.port = opts.port || 8383
+  opts.log = opts.log || { info:noop, warn:noop, debug:noop, error:noop }
+  opts.ttl = opts.ttl || 24 * 3600 // seconds
+  return opts
 }
 
 function FanboyService (opts) {
@@ -131,35 +132,31 @@ FanboyService.prototype.route = function (req, res) {
 
 FanboyService.prototype.handle = function (req, res) {
   var rt = this.route(req, res)
+  res.setHeader('Cache-Control', 'max-age=' + this.ttl)
+  res.setHeader('Content-Type', 'application/json')
+  if (req.method === 'HEAD') {
+    return res.end()
+  }
   rt.fn(req, res, rt.params)
 }
 
-function init (svc, db) {
-  svc.db = db
-  svc.opts = {
-    db: db
-  , media: 'podcast'
-  }
-  svc.server = http.createServer(function (req, res) {
-    svc.handle(req, res)
-  }).listen(svc.port)
+FanboyService.prototype.start = function (cb) {
+  this.log.info('starting on port %s', this.port)
+  this.db = this.db || levelup(this.location)
+  if (!this.db.isClosed) this.db.open()
+  this.fanboy = this.fanboy || fanboy({ db:this.db, media:'podcast' })
+  this.server = this.server || http.createServer(this.handle.bind(this))
+  if (cb) this.server.once('listening', cb)
+  this.server.listen(this.port)
 }
 
-FanboyService.prototype.start = function () {
-  if (this.db) {
-    this.db.open()
-  } else {
-    var me = this
-    levelup(this.location, null, function (er, db) {
-      assert(!er && db)
-      init(me, db) // I don't know, bind or whatever ...
+FanboyService.prototype.stop = function (cb) {
+  var me = this
+  this.server.close(function (er) {
+    me.db.close(function (er) {
+      if (cb) cb(er)
     })
-  }
-}
-
-FanboyService.prototype.stop = function () {
-  this.server.close()
-  this.db.close()
+  })
 }
 
 if (process.env.NODE_TEST) {

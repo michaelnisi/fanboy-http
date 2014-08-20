@@ -16,18 +16,22 @@ test('defaults', function (t) {
     , noop = fanboy_http.noop
     , log = function () {}
     ;
+
   var wanted = [
     { location: '/tmp/fanboy-http'
     , port: 8383
     , log: { info:noop, warn:noop, debug:noop, error:noop }
+    , ttl: 86400
     }
   , { location: '/tmp/fanboy-http'
     , port: 80
     , log: { info:noop, warn:noop, debug:noop, error:noop }
+    , ttl: 86400
     }
   , { location: '/tmp/fanboy-http'
     , port: 80
     , log: log
+    , ttl: 86400
     }
   ]
   ;[

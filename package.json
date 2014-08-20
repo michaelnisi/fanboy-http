@@ -19,24 +19,24 @@
     "fanboy",
     "http"
   ],
-  "author": "Michael Nisi <michael.nisi@gmail.com>",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/michaelnisi/fanboy-http/issues"
   },
   "homepage": "https://github.com/michaelnisi/fanboy-http",
+  "engines": {
+    "node": "^0.10"
+  },
+  "author": "Michael Nisi <michael.nisi@gmail.com> (http://michaelnisi.com/)",
   "dependencies": {
-    "bunyan": "1.0.x",
-    "fanboy": "0.2.x",
-    "leveldown": "0.10.x",
-    "levelup": "0.18.x",
-    "mkdirp": "0.5.x",
-    "routes": "1.2.x"
+    "bunyan": "^1.0.0",
+    "fanboy": "^2.0.0",
+    "leveldown": "^0.10.2",
+    "levelup": "^0.18.6",
+    "mkdirp": "^0.5.0",
+    "routes": "^1.2.0"
   },
   "devDependencies": {
-    "tap": "0.4.x"
+    "tap": "^0.4.12"
   },
-  "engines": {
-    "node": ">=0.10"
-  }
+  "license": "MIT"
 }
