@@ -3,4 +3,4 @@
 
 ## License
 
-[ISC License](https://github.com/michaelnisi/fanboy-http/blob/master/LICENSE)
+[MIT License](https://github.com/michaelnisi/fanboy-http/blob/master/LICENSE)

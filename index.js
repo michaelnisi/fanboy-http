@@ -34,7 +34,7 @@ function warn (er) {
 
 function streamError (log, stream, req, res) {
   return function (er) {
-    warn(er) ? log.warn(er.message) : log.error({req:req, er:er})
+    warn(er) ? log.warn(er.message) : log.error({req:req, err:er})
     stream.unpipe(res)
     stream.removeAllListeners()
     res.end('[]\n')
@@ -56,10 +56,10 @@ function suggest (req, res, params) {
   var query = parse(params.query)
   if (!query) {
     req.url = '/'
-    return this.handle(req, res)
+    return req.handle(req, res)
   }
-  this.log.info('suggest: %s', query)
-  var stream = this.fanboy.suggest()
+  req.log.info('suggest: %s', query)
+  var stream = req.fanboy.suggest()
     , ok = false
     ;
   stream.write(query)
@@ -67,7 +67,7 @@ function suggest (req, res, params) {
   stream.once('readable', function () {
     ok = true
   })
-  stream.once('error', streamError(this.log, stream, req, res))
+  stream.once('error', streamError(req.log, stream, req, res))
   stream.end(function () {
     res.end(ok ? undefined : '[]\n')
   })
@@ -77,36 +77,26 @@ function search (req, res, params) {
   var query = parse(params.query)
   if (!query) {
     req.url = '/'
-    return this.handle(req, res)
+    return req.handle(req, res)
   }
-  this.log.info('search: %s', query)
-  var stream = this.fanboy.search()
+  req.log.info('search: %s', query)
+  var stream = req.fanboy.search()
   stream.pipe(res)
-  stream.once('error', streamError(this.log, stream, req, res))
+  stream.once('error', streamError(req.log, stream, req, res))
   stream.end(query, function () {
     res.end()
   })
 }
 
-function ping (req, res, params) {
-  this.log.info('ping')
+function ping (req, res) {
+  req.log.info('ping')
   res.end('pong\n')
 }
 
 function notfound (req, res) {
-  this.log.warn('fishy request')
+  req.log.warn('fishy request')
   res.writeHead(404)
   res.end('not found\n')
-}
-
-function createRouter (scope) {
-  var router = this.router = routes()
-  router.addRoute('/ping', ping.bind(scope))
-  router.addRoute('/suggest:query', suggest.bind(scope))
-  router.addRoute('/search:query', search.bind(scope))
-  router.addRoute('/*', notfound.bind(scope))
-  router.addRoute('/', notfound.bind(scope))
-  return router
 }
 
 function defaults (opts) {
@@ -122,7 +112,14 @@ function FanboyService (opts) {
   opts = defaults(opts)
   if (!(this instanceof FanboyService)) return new FanboyService(opts)
   util._extend(this, opts)
-  this.router = createRouter(this)
+
+  var router = this.router = routes()
+  router.addRoute('/ping', ping)
+  router.addRoute('/suggest:query', suggest)
+  router.addRoute('/search:query', search)
+  router.addRoute('/*', notfound)
+  router.addRoute('/', notfound)
+
   mkdirp.sync(this.location)
 }
 
@@ -137,6 +134,15 @@ FanboyService.prototype.handle = function (req, res) {
   if (req.method === 'HEAD') {
     return res.end()
   }
+  var me = this
+  res.on('close', function () {
+    me.log.warn({err:new Error('connection terminated'), req:req})
+  })
+
+  req.log = this.log
+  req.fanboy = this.fanboy
+  req.handle = this.handle
+
   rt.fn(req, res, rt.params)
 }
 
@@ -145,7 +151,10 @@ FanboyService.prototype.start = function (cb) {
   this.db = this.db || levelup(this.location)
   if (!this.db.isClosed) this.db.open()
   this.fanboy = this.fanboy || fanboy({ db:this.db, media:'podcast' })
-  this.server = this.server || http.createServer(this.handle.bind(this))
+  var me = this
+  this.server = this.server || http.createServer(function (req, res) {
+    me.handle(req, res)
+  })
   if (cb) this.server.once('listening', cb)
   this.server.listen(this.port)
 }
