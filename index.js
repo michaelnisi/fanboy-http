@@ -169,7 +169,6 @@ FanboyService.prototype.stop = function (cb) {
 }
 
 if (process.env.NODE_TEST) {
-  exports.createRouter = createRouter
   exports.FanboyService = FanboyService
   exports.defaults = defaults
   exports.noop = noop
