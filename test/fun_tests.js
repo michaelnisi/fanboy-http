@@ -13,25 +13,28 @@ test('constructor', function (t) {
 
 test('defaults', function (t) {
   var f = fanboy_http.defaults
-    , noop = fanboy_http.noop
+    , nop = fanboy_http.nop
     , log = function () {}
     ;
 
   var wanted = [
     { location: '/tmp/fanboy-http'
     , port: 8383
-    , log: { info:noop, warn:noop, debug:noop, error:noop }
+    , log: { info:nop, warn:nop, debug:nop, error:nop }
     , ttl: 86400
+    , cacheSize: 8388608
     }
   , { location: '/tmp/fanboy-http'
     , port: 80
-    , log: { info:noop, warn:noop, debug:noop, error:noop }
+    , log: { info:nop, warn:nop, debug:nop, error:nop }
     , ttl: 86400
+    , cacheSize: 8388608
     }
   , { location: '/tmp/fanboy-http'
     , port: 80
     , log: log
     , ttl: 86400
+    , cacheSize: 8388608
     }
   ]
   ;[

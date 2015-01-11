@@ -4,41 +4,35 @@
 module.exports = exports = FanboyService
 
 var assert = require('assert')
-  , fanboy = require('fanboy')
-  , http = require('http')
-  , levelup = require('levelup')
-  , mkdirp = require('mkdirp')
-  , routes = require('routes')
-  , util = require('util')
-  , querystring = require('querystring')
-  ;
+var fanboy = require('fanboy')
+var http = require('http')
+var levelup = require('levelup')
+var mkdirp = require('mkdirp')
+var querystring = require('querystring')
+var routes = require('routes')
+var util = require('util')
 
-function noop () {}
+function nop () {}
 
 var debug = function () {
   return process.env.NODE_DEBUG ?
     function (o) {
       console.error('**fanboy-http: %s', util.inspect(o))
-    } : noop
+    } : nop
 }()
 
-var _warn = [
+var NIL = '[]\n'
+
+var WARN = [
   'JSON contained no results'
 , 'no results'
 , 'cached null'
 ]
-
 function warn (er) {
-  return er.notFound || _warn.indexOf(er.message) > -1
+  return er.notFound || WARN.indexOf(er.message) > -1
 }
-
-function streamError (log, stream, req, res) {
-  return function (er) {
-    warn(er) ? log.warn(er.message) : log.error({req:req, err:er})
-    stream.unpipe(res)
-    stream.removeAllListeners()
-    res.end('[]\n')
-  }
+function logRequest (req, er) {
+  warn(er) ? req.log.warn(er.message) : req.log.error({req:req, err:er})
 }
 
 function parse (query) {
@@ -54,38 +48,51 @@ function parse (query) {
 
 function suggest (req, res, params) {
   var query = parse(params.query)
-  if (!query) {
-    req.url = '/'
-    return req.handle(req, res)
-  }
+  if (!query) return notfound(req, res)
   req.log.info('suggest: %s', query)
+
   var stream = req.fanboy.suggest()
-    , ok = false
-    ;
-  stream.write(query)
-  stream.pipe(res)
-  stream.once('readable', function () {
+  var ok = false
+  function streamReadable () {
     ok = true
-  })
-  stream.once('error', streamError(req.log, stream, req, res))
-  stream.end(function () {
-    res.end(ok ? undefined : '[]\n')
-  })
+  }
+  function streamError (er) {
+    res.end(NIL)
+    logRequest(req, er)
+    stream.unpipe(res)
+    stream.removeListener('readable', streamReadable)
+  }
+  function streamFinish () {
+    res.end(ok ? undefined : NIL)
+    stream.removeListener('error', streamError)
+    stream.removeListener('readable', streamReadable)
+  }
+  stream.once('error', streamError)
+  stream.once('readable', streamReadable)
+  stream.pipe(res)
+
+  stream.end(query, streamFinish)
 }
 
 function search (req, res, params) {
   var query = parse(params.query)
-  if (!query) {
-    req.url = '/'
-    return req.handle(req, res)
-  }
+  if (!query) return notfound(req, res)
   req.log.info('search: %s', query)
+
   var stream = req.fanboy.search()
-  stream.pipe(res)
-  stream.once('error', streamError(req.log, stream, req, res))
-  stream.end(query, function () {
+  function streamError (er) {
+    res.end(NIL)
+    logRequest(req, er)
+    stream.unpipe(res)
+  }
+  function streamFinish () {
     res.end()
-  })
+    stream.removeListener('error', streamError)
+  }
+  stream.once('error', streamError)
+  stream.pipe(res)
+
+  stream.end(query, streamFinish)
 }
 
 function ping (req, res) {
@@ -103,8 +110,9 @@ function defaults (opts) {
   opts = opts || Object.create(null)
   opts.location = opts.location || '/tmp/fanboy-http'
   opts.port = opts.port || 8383
-  opts.log = opts.log || { info:noop, warn:noop, debug:noop, error:noop }
-  opts.ttl = opts.ttl || 24 * 3600 // seconds
+  opts.log = opts.log || { info:nop, warn:nop, debug:nop, error:nop }
+  opts.ttl = opts.ttl || 24 * 3600
+  opts.cacheSize = opts.cacheSize || 8 * 1024 * 1024
   return opts
 }
 
@@ -128,27 +136,32 @@ FanboyService.prototype.route = function (req, res) {
 }
 
 FanboyService.prototype.handle = function (req, res) {
-  var rt = this.route(req, res)
-  res.setHeader('Cache-Control', 'max-age=' + this.ttl)
-  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('cache-control', 'public, max-age=' + this.ttl)
+  res.setHeader('content-type', 'application/json')
   if (req.method === 'HEAD') {
     return res.end()
   }
   var me = this
   res.on('close', function () {
-    me.log.warn({err:new Error('connection terminated'), req:req})
+    me.log.warn({err: new Error('connection terminated'), req: req})
   })
+  res.on('finish', res.removeAllListeners)
 
+  req.resume()
   req.log = this.log
   req.fanboy = this.fanboy
   req.handle = this.handle
 
+  var rt = this.route(req, res)
   rt.fn(req, res, rt.params)
 }
 
 FanboyService.prototype.start = function (cb) {
   this.log.info('starting on port %s', this.port)
-  this.db = this.db || levelup(this.location)
+  this.log.info('using database at %s', this.location)
+
+  this.db = this.db || levelup(
+    this.location, { cacheSize: this.cacheSize })
   if (!this.db.isClosed) this.db.open()
   this.fanboy = this.fanboy || fanboy({ db:this.db, media:'podcast' })
   var me = this
@@ -171,6 +184,6 @@ FanboyService.prototype.stop = function (cb) {
 if (process.env.NODE_TEST) {
   exports.FanboyService = FanboyService
   exports.defaults = defaults
-  exports.noop = noop
+  exports.nop = nop
   exports.parse = parse
 }
