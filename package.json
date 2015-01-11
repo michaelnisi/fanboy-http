@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/michaelnisi/fanboy-http",
   "engines": {
-    "node": "^0.10"
+    "node": "0.10.x"
   },
   "author": "Michael Nisi <michael.nisi@gmail.com> (http://michaelnisi.com/)",
   "dependencies": {
