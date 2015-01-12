@@ -52,23 +52,16 @@ function suggest (req, res, params) {
   req.log.info('suggest: %s', query)
 
   var stream = req.fanboy.suggest()
-  var ok = false
-  function streamReadable () {
-    ok = true
-  }
   function streamError (er) {
     res.end(NIL)
     logRequest(req, er)
     stream.unpipe(res)
-    stream.removeListener('readable', streamReadable)
   }
   function streamFinish () {
-    res.end(ok ? undefined : NIL)
+    res.end()
     stream.removeListener('error', streamError)
-    stream.removeListener('readable', streamReadable)
   }
   stream.once('error', streamError)
-  stream.once('readable', streamReadable)
   stream.pipe(res)
 
   stream.end(query, streamFinish)
