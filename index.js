@@ -27,6 +27,7 @@ var WARN = [
   'JSON contained no results'
 , 'no results'
 , 'cached null'
+, 'connection terminated'
 ]
 function warn (er) {
   return er.notFound || WARN.indexOf(er.message) > -1
@@ -136,7 +137,7 @@ FanboyService.prototype.handle = function (req, res) {
   }
   var me = this
   res.on('close', function () {
-    me.log.warn({err: new Error('connection terminated'), req: req})
+    logRequest(req, new Error('connection terminated'), req)
   })
   res.on('finish', res.removeAllListeners)
 
