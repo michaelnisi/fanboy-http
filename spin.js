@@ -13,15 +13,22 @@ function rnd (arr) {
 }
 var verbs = ['/suggest?q=', '/search?q=']
 var paths = terms.map(function (term) {
-  return rnd(verbs) + rnd(terms)
+  var verb = rnd(verbs)
+  var term = rnd(terms)
+  if (verb.match(/\/sug/)) {
+    term = term.substr(0, Math.ceil(Math.random() * term.length))
+  }
+  return verb + term
 })
 
 function path () {
   return paths[Math.floor(Math.random() * paths.length)]
 }
 
+var current
 function opts (t) {
-  return {
+  if (!!current && Math.random() > .8) return current
+  current = {
     'https': {
       host: '10.0.1.24'
     , path: path()
@@ -35,6 +42,7 @@ function opts (t) {
     , path: path()
     }
   }[t]
+  return current
 }
 
 function request (max) {
@@ -55,7 +63,7 @@ function request (max) {
     function reqError (er) {
       req.abort() // TODO: Is this necessary?
       req.removeListener('error', reqError)
-      console.error('%s failed', req.path)
+      console.error('%s failed: %s', req.path, er.message)
     }
     req.on('error', reqError)
     req.end()
@@ -64,5 +72,5 @@ function request (max) {
 }
 
 setInterval(function () {
-  request(10)
+  request(Math.ceil(Math.random() * 10))
 }, 1000)
