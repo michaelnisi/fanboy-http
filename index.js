@@ -150,6 +150,12 @@ FanboyService.prototype.handle = function (req, res) {
   rt.fn(req, res, rt.params)
 }
 
+function FanboyOpts (db) {
+  this.db = db
+  this.media = 'podcast'
+  this.highWaterMark = 4 * 1024
+}
+
 FanboyService.prototype.start = function (cb) {
   this.log.info('starting on port %s', this.port)
   this.log.info('using database at %s', this.location)
@@ -158,7 +164,7 @@ FanboyService.prototype.start = function (cb) {
   this.db = this.db || levelup(
     this.location, { cacheSize: this.cacheSize })
   if (!this.db.isClosed) this.db.open()
-  this.fanboy = this.fanboy || fanboy({ db:this.db, media:'podcast' })
+  this.fanboy = this.fanboy || fanboy(new FanboyOpts(this.db))
   var me = this
   this.server = this.server || http.createServer(function (req, res) {
     me.handle(req, res)
