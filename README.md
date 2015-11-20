@@ -1,5 +1,6 @@
-
 # fanboy-http - HTTP API for Fanboy
+
+TODO: Write documentation
 
 ## License
 

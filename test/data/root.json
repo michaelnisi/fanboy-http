@@ -1,0 +1,12 @@
+{
+  "request": {
+    "host": "localhost",
+    "port": 1337,
+    "method": "GET",
+    "path": "/"
+  },
+  "response": {
+    "name": "fanboy",
+    "version": "2.0.0"
+  }
+}

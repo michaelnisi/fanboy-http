@@ -1,9 +1,9 @@
-
 // spin - take it for a spin
 
 var fs = require('fs')
-var https = require('https')
 var http = require('http')
+
+var guids = [763718821]
 
 var terms = fs.readFileSync(
   '/usr/share/dict/words', { encoding: 'utf8' }).split('\n')
@@ -11,35 +11,36 @@ var terms = fs.readFileSync(
 function rnd (arr) {
   return arr[Math.floor(Math.random() * arr.length)]
 }
-var verbs = ['/suggest?q=', '/search?q=']
-var paths = terms.map(function (term) {
+var verbs = ['/suggest/', '/search/', '/lookup/']
+
+function path () {
   var verb = rnd(verbs)
   var term = rnd(terms)
   if (verb.match(/\/sug/)) {
     term = term.substr(0, Math.ceil(Math.random() * term.length))
+  } else if (verb.match(/\/look/)) {
+    term = rnd(guids)
+  } else if (verb.match(/\/search/)) {
+    if (Math.random() > 0.8) term = 'apple'
   }
   return verb + term
-})
-
-function path () {
-  return paths[Math.floor(Math.random() * paths.length)]
 }
 
 var current
 function opts (t) {
-  if (!!current && Math.random() > .8) return current
+  if (!!current && Math.random() > 0.8) return current
   current = {
     'https': {
-      host: '10.0.1.24'
-    , path: path()
-    , rejectUnauthorized: false
-    , strictSSL: false
-    , headers: { 'Secret': 'beep' }
-    }
-  , 'http': {
-      host: 'localhost'
-    , port: 8383
-    , path: path()
+      host: '10.0.1.24',
+      path: path(),
+      rejectUnauthorized: false,
+      strictSSL: false,
+      headers: { 'Secret': 'beep' }
+    },
+    'http': {
+      host: 'localhost',
+      port: 8383,
+      path: path()
     }
   }[t]
   return current
@@ -52,12 +53,27 @@ function request (max) {
         console.error(er)
       }
       function resEnd () {
+        var json = JSON.parse(buf)
+        if (json.length > 0) {
+          json.reduce(function (acc, el) {
+            var guid = el.guid
+            if (guid) {
+              if (acc.indexOf(guid) === -1) {
+                acc.push(guid)
+              }
+            }
+            return acc
+          }, guids)
+        }
         res.removeListener('error', resError)
         res.removeListener('end', resEnd)
       }
       res.on('error', resError)
       res.on('end', resEnd)
-      res.resume()
+      var buf = ''
+      res.on('data', function (chunk) {
+        buf += chunk
+      })
       process.stdout.write('.')
     })
     function reqError (er) {

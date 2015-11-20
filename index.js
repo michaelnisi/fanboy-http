@@ -1,190 +1,335 @@
-
 // fanboy-http - Fanboy HTTP API
 
 module.exports = exports = FanboyService
 
+var Negotiator = require('negotiator')
 var assert = require('assert')
 var fanboy = require('fanboy')
+var fs = require('fs')
 var http = require('http')
-var levelup = require('levelup')
+var httphash = require('http-hash')
 var mkdirp = require('mkdirp')
-var querystring = require('querystring')
-var routes = require('routes')
+var path = require('path')
 var util = require('util')
+var zlib = require('zlib')
 
 function nop () {}
 
-var debug = function () {
-  return process.env.NODE_DEBUG ?
-    function (o) {
-      console.error('**fanboy-http: %s', util.inspect(o))
-    } : nop
-}()
+var debugging = parseInt(process.env.NODE_DEBUG, 10) === 1
+var debug = (function () {
+  return debugging ? function (o) {
+    console.error('** fanboy-http: %s', util.inspect(o))
+  } : nop
+})()
+var time = debugging ? process.hrtime : nop
+var ns = (function () {
+  return debugging ? function (t) {
+    return t[0] * 1e9 + t[1]
+  } : nop
+})()
 
-function parse (query) {
-  var q = querystring.parse(query)['?q']
-  if (q) {
-    return q.split(' ').filter(function (token, i, tokens) {
-      return i === tokens.indexOf(token)
-    }).join(' ').trim()
+function headers (len, lat, enc) {
+  var headers = {
+    'Cache-Control': 'max-age=' + 86400,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': len
+  }
+  if (lat) {
+    headers['Latency'] = lat
+  }
+  if (enc) {
+    headers['Content-Encoding'] = enc
+  }
+  return headers
+}
+
+function getGz (req) {
+  var gz = false
+  var neg = new Negotiator(req)
+  gz = neg.preferredEncoding(['gzip', 'identity']) === 'gzip'
+  return gz
+}
+
+function latency (t, log) {
+  var lat = ns(time(t))
+  var limit = 21e6
+  if (lat > limit) {
+    log.warn('high latency: ' + (lat / 1e6).toFixed(2) + ' ms')
+  }
+  return lat
+}
+
+function respond (req, res, statusCode, payload, ts) {
+  assert(!res.finished, 'attempted to respond more than once')
+
+  var log = req.log || { warn: nop }
+
+  function onfinish () {
+    req = null
+    res.removeListener('close', onclose)
+    res.removeListener('finish', onfinish)
+    res = null
+  }
+  function onclose () {
+    log.warn('connection terminated: ' + req.url)
+    onfinish()
+  }
+  var gz = getGz(req)
+  function lat () {
+    if (ts instanceof Array) {
+      return latency(ts, log)
+    }
+  }
+  function write (headers, data) {
+    if (req.method === 'HEAD') data = null
+    res.writeHead(statusCode, headers)
+    res.end(data)
+  }
+  if (gz) {
+    zlib.gzip(payload, function (er, zipped) {
+      if (!res) return
+      var h = headers(zipped.length, lat(), 'gzip')
+      write(h, zipped)
+    })
   } else {
-    return undefined
+    var len = Buffer.byteLength(payload, 'utf8')
+    var h = headers(len, lat())
+    write(h, payload)
+  }
+  res.on('close', onclose)
+  res.on('finish', onfinish)
+}
+
+function ok (er) {
+  var whitelist = RegExp([
+    'fanboy: unexpected response 400',
+    'fanboy: guid',
+  ].join('|'))
+  var msg = er.message
+  return msg.match(whitelist) !== null
+}
+
+function errorHandler (er, log) {
+  log = log || this.log
+  if (ok(er)) {
+    log.warn(er.message)
+  } else {
+    var failure = 'fatal error'
+    var reason = er.message
+    var error = new Error([failure, reason].join([': ']))
+    log.error(error)
+    process.nextTick(function () {
+      throw error
+    })
   }
 }
 
-function bufres (req, res, query, stream) {
-  function processExit () {
-    res.writeHead(503)
-    res.end()
-  }
-  function resClose () {
-    req.log.warn('socket closed prematurely')
-  }
-  function streamEnd () {
-    process.removeListener('exit', processExit)
-    stream.removeListener('end', streamEnd)
-    stream.removeListener('error', streamError)
-    stream.removeListener('readable', streamReadable)
-    req.log.info('%s bytes sent', buffer.length)
-
-    // TODO: How expensive would it be to add Etags?
-    res.writeHead(200, {
-      'Cache-Control': 'public, max-age=' + this.ttl
-    , 'Content-Type': 'application/json'
-    })
-
-    if (!buffer.length) {
-      req.log.warn('empty buffer')
-      buffer = '[]\n'
-    }
-
-    res.end(buffer)
-    res.removeListener('close', resClose)
-
-    assert(stream.db === null)
-  }
-  function streamError (er) {
-    req.log.error({req:req, err:er})
-    throw(er)
-  }
-  var buffer = ''
+function query (s, state, queries, cb) {
+  var data = ''
   function read () {
     var chunk
-    while (null !== (chunk = stream.read())) {
-      buffer += chunk
+    while ((chunk = s.read()) !== null) {
+      data += chunk
     }
   }
-  function streamReadable () {
-    read()
+  function deinit () {
+    s.removeListener('drain', write)
+    s.removeListener('end', onend)
+    s.removeListener('error', onerror)
+    s.removeListener('readable', read)
+    s = null
+    state = null
+    queries = null
+    cb = null
   }
-  stream.on('end', streamEnd)
-  stream.on('error', streamError)
-  stream.on('readable', streamReadable)
-  res.on('close', resClose)
-  process.on('exit', processExit)
+  function onend () {
+    var payload = data
+    cb(null, 200, payload)
+    deinit()
+  }
+  function onerror (er) {
+    errorHandler(er, state.log)
+  }
+  s.on('end', onend)
+  s.on('error', onerror)
+  s.on('readable', read)
 
-  stream.end(query)
+  function write () {
+    var q = queries.shift()
+    if (q === undefined) {
+      s.end()
+    } else {
+      if (s.write(q)) {
+        write()
+      } else {
+        s.once('drain', write)
+      }
+    }
+  }
+  write()
 }
 
-function suggest (req, res, params) {
-  var query = parse(params.query)
-  if (!query) return notfound(req, res)
-  req.log.info('suggest: %s', query)
-  bufres(req, res, query, req.fanboy.suggest())
+function root (state, params, cb) {
+  var payload = JSON.stringify({
+    name: 'fanboy',
+    version: state.version
+  })
+  cb(null, 200, payload)
 }
 
-function search (req, res, params) {
-  var query = parse(params.query)
-  if (!query) return notfound(req, res)
-  req.log.info('search: %s', query)
-  bufres(req, res, query, req.fanboy.search())
+function notFound (state, params, cb) {
+  var er = new Error('not found')
+  var payload = JSON.stringify({
+    error: 'not found',
+    reason: 'not an endpoint'
+  })
+  cb(er, 404, payload)
 }
 
-function ping (req, res) {
-  req.log.info('ping')
-  res.writeHead(200)
-  res.end('pong\n')
+function lookup (state, params, cb) {
+  var s = state.fanboy.lookup()
+  var queries = unescape(params.query).split(',')
+  query(s, state, queries, cb)
 }
 
-function notfound (req, res) {
-  req.log.warn('fishy request')
-  res.writeHead(404)
-  res.end('not found\n')
+function search (state, params, cb) {
+  var s = state.fanboy.search()
+  var queries = [unescape(params.query)]
+  query(s, state, queries, cb)
+}
+
+function suggest (state, params, cb) {
+  var s = state.fanboy.suggest()
+  var queries = [unescape(params.query)]
+  query(s, state, queries, cb)
+}
+
+function router () {
+  var router = httphash()
+  router.set('/', root)
+  router.set('/lookup/:query/', lookup)
+  router.set('/search/:query/', search)
+  router.set('/suggest/:query/', suggest)
+  return router
+}
+
+function version () {
+  var p = path.join(__dirname, 'package.json')
+  var data = fs.readFileSync(p)
+  var pkg = JSON.parse(data)
+  return pkg.version
 }
 
 function defaults (opts) {
   opts = opts || Object.create(null)
   opts.location = opts.location || '/tmp/fanboy-http'
   opts.port = opts.port || 8383
-  opts.log = opts.log || { info:nop, warn:nop, debug:nop, error:nop }
-  opts.ttl = opts.ttl || 24 * 3600
+  opts.log = opts.log || { info: nop, warn: nop, debug: nop, error: nop }
+  opts.ttl = opts.ttl || 24 * 3600 * 1000
   opts.cacheSize = opts.cacheSize || 16 * 1024 * 1024
   return opts
 }
 
 function FanboyService (opts) {
-  opts = defaults(opts)
   if (!(this instanceof FanboyService)) return new FanboyService(opts)
+
+  opts = defaults(opts)
   util._extend(this, opts)
 
-  var router = this.router = routes()
-  router.addRoute('/ping', ping)
-  router.addRoute('/suggest:query', suggest)
-  router.addRoute('/search:query', search)
-  router.addRoute('/*', notfound)
-  router.addRoute('/', notfound)
+  this.router = router()
+  this.version = version()
+
+  this.fanboy = null
+  this.repl = null
+  this.server = null
 
   mkdirp.sync(this.location)
 }
 
-FanboyService.prototype.route = function (req, res) {
-  return this.router.match(req.url)
-}
-
-FanboyService.prototype.handle = function (req, res) {
-  req.log = this.log
-  req.fanboy = this.fanboy
-  req.handle = this.handle
-  req.resume() // required to free memory earlier
-  var rt = this.route(req, res)
-  rt.fn(req, res, rt.params)
-}
-
-function FanboyOpts (db) {
-  this.db = db
-  this.media = 'podcast'
-  this.highWaterMark = 4 * 1024
-}
+// Please note that restarting is undefined.
 
 FanboyService.prototype.start = function (cb) {
-  this.log.info('starting on port %s', this.port)
-  this.log.info('using database at %s', this.location)
-  this.log.info('with cache size %s MB', this.cacheSize / 1024 / 1024)
+  cb = cb || nop
 
-  this.db = this.db || levelup(
-    this.location, { cacheSize: this.cacheSize })
-  if (!this.db.isClosed) this.db.open()
-  this.fanboy = this.fanboy || fanboy(new FanboyOpts(this.db))
-  var me = this
-  this.server = this.server || http.createServer(function (req, res) {
-    me.handle(req, res)
+  var log = this.log
+
+  log.info('starting pid %s', process.pid)
+  log.info('using database at %s', this.location)
+  log.info('with cache size %s MB', this.cacheSize / 1024 / 1024)
+
+  var cache = fanboy(this.location, {
+    cacheSize: this.cacheSize,
+    media: 'podcast',
+    ttl: this.ttl
   })
-  if (cb) this.server.once('listening', cb)
-  this.server.listen(this.port)
+  this.errorHandler = errorHandler.bind(this)
+  cache.on('error', this.errorHandler)
+  this.fanboy = cache
+
+  // Setting up context for the request handler
+
+  var payloads = {
+    500: JSON.stringify({
+      error: 'not ok',
+      reason: 'could be all kinds of things actually'
+    })
+  }
+
+  var router = this.router
+
+  var state = {
+    fanboy: cache,
+    log: log,
+    version: this.version
+  }
+
+  function onrequest (req, res) {
+    var ts = time()
+    log.info(req.method + ' ' + req.url)
+    function terminate (er, statusCode, payload) {
+      if (er) {
+        log.warn(req.url + ' ' + er.message)
+        statusCode = statusCode || 500
+        payload = payload || payloads[statusCode] || payloads[500]
+      }
+      respond(req, res, statusCode, payload, ts)
+      req = null
+      res = null
+    }
+    var route = router.get(req.url)
+    var handler = route.handler || notFound
+    var params = route.params
+    handler(state, params, terminate)
+  }
+
+  var port = this.port
+  var server = http.createServer(onrequest)
+  server.listen(port, function (er) {
+    log.info('listening on port %s', port)
+    log.info('allowing %s sockets', http.globalAgent.maxSockets)
+    cb(er)
+  })
+  this.server = server
 }
 
 FanboyService.prototype.stop = function (cb) {
+  cb = cb || nop
   var me = this
   this.server.close(function (er) {
-    me.db.close(function (er) {
-      if (cb) cb(er)
-    })
+    me.fanboy.close(cb)
   })
 }
 
-if (process.env.NODE_TEST) {
+if (parseInt(process.env.NODE_TEST, 10) === 1) {
   exports.FanboyService = FanboyService
+  exports.debug = debug
   exports.defaults = defaults
+  exports.lookup = lookup
   exports.nop = nop
-  exports.parse = parse
+  exports.query = query
+  exports.root = root
+  exports.router = router
+  exports.search = search
+  exports.suggest = suggest
+  exports.version = version
 }
