@@ -72,7 +72,13 @@ test('basic REST API', { bail: true }, function (t) {
         res.on('end', function () {
           var found = JSON.parse(buf)
           var wanted = response.payload || response
-          t.match(found, wanted)
+          if (found instanceof Array && wanted instanceof Array) {
+            wanted.forEach(function (it, i) {
+              t.same(found[i], it)
+            })
+          } else {
+            t.match(found, wanted)
+          }
           if (sc === 202) {
             setTimeout(function () {
               go(children, cb)
@@ -115,10 +121,9 @@ test('basic REST API', { bail: true }, function (t) {
       scopes.forEach(function (scope) {
         t.ok(scope.isDone())
       })
+      t.end()
     }
   }
-  t.plan(++count)
-  t.is(count, 5, 'should be anal')
   run(tests)
 })
 

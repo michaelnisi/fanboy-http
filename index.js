@@ -103,7 +103,7 @@ function respond (req, res, statusCode, payload, ts) {
 function ok (er) {
   var whitelist = RegExp([
     'fanboy: unexpected response 400',
-    'fanboy: guid',
+    'fanboy: guid'
   ].join('|'))
   var msg = er.message
   return msg.match(whitelist) !== null
