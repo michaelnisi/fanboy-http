@@ -285,7 +285,7 @@ FanboyService.prototype.start = function (cb) {
 
   function onrequest (req, res) {
     var ts = time()
-    log.info(req.method + ' ' + req.url)
+    log.debug(req.method + ' ' + req.url)
     function terminate (er, statusCode, payload) {
       if (er) {
         log.warn(req.url + ' ' + er.message)
