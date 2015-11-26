@@ -1,24 +1,9 @@
+[
 {
   "remote":
   {
     "host": "http://itunes.apple.com",
     "path": "/search?media=podcast&country=us&term=nyt",
-    "headers": {
-      "x-apple-jingle-correlation-key": "2CU45PRPHDALPDH53CBLEI6BEY",
-      "x-apple-translated-wo-url": "/WebObjects/MZStoreServices.woa/ws/wsSearch?term=nyt&urlDesc=",
-      "x-apple-orig-url": "http://itunes.apple.com/search?term=nyt",
-      "x-apple-application-site": "ST11i",
-      "apple-timing-app": "217 ms",
-      "Content-Type": "text/javascript; charset=utf-8",
-      "x-apple-application-instance": 2001557,
-      "x-webobjects-loadaverage": 0,
-      "Server": "ATS/4.1.0",
-      "X-Apple-ATS-Cache-Key": "/17.173.38.168/80/search/iDevice?term=nyt",
-      "Cache-Control": "no-transform, max-age=60",
-      "Date": "Sat, 21 Nov 2015 17:40:45 GMT",
-      "Connection": "keep-alive",
-      "X-Apple-Partner": "origin.0"
-    },
     "file": "remote/nyt.json"
   },
   "request": {
@@ -150,5 +135,17 @@
     "updated": 1404984600000
   }
 ]
+},
+{
+  "request": {
+    "host": "localhost",
+    "port": 1337,
+    "method": "GET",
+    "path": "/suggest/n"
+  },
+  "response": [
+    "nyt"
+  ]
 }
+]
 

@@ -103,7 +103,8 @@ function respond (req, res, statusCode, payload, ts) {
 function ok (er) {
   var whitelist = RegExp([
     'fanboy: unexpected response 400',
-    'fanboy: guid'
+    'fanboy: guid',
+    'fanboy: socket hang up'
   ].join('|'))
   var msg = er.message
   return msg.match(whitelist) !== null
@@ -285,7 +286,7 @@ FanboyService.prototype.start = function (cb) {
 
   function onrequest (req, res) {
     var ts = time()
-    log.debug(req.method + ' ' + req.url)
+    log.info(req.method + ' ' + req.url)
     function terminate (er, statusCode, payload) {
       if (er) {
         log.warn(req.url + ' ' + er.message)

@@ -1,6 +1,83 @@
-# fanboy-http - HTTP API for Fanboy
+# fanboy-http - search iTunes for feeds
 
-TODO: Write documentation
+**fanboy-http** is an HTTP/1.1 API for cached searching and looking up of feeds in the iTunes store.
+
+## Types
+
+### feed()
+
+The search and lookup results returned by the iTunes store search API get reduced to this custom tailored feed object.
+
+- `author` `String()` The author of the feed.
+- `feed` `String()` The URL of the feed.
+- `guid` `Number()` The iTunes store guid of the item.
+- `img100` `String()` The URL of a scaled image representing the feed.
+- `img30` `String()` The URL of a scaled image representing the feed.
+- `img60` `String()` The URL of a scaled image representing the feed.
+- `img600` `String()` The URL of a scaled image representing the feed.
+- `title` `String()` The title of feed.
+- `updated` `Number()` The date when the feed was last updated by iTunes.
+- `ts` `Number()` Timestamp of when this item was cached.
+
+## API
+
+### Responses
+
+Here, a representative response header of this API:
+
+```
+HTTP/1.1 200 OK
+Cache-Control: max-age=86400
+Content-Type: application/json; charset=utf-8
+Content-Length: 5990
+Latency: 10454574
+Content-Encoding: gzip
+Date: Sun, 22 Nov 2015 07:07:10 GMT
+Connection: keep-alive
+```
+
+### Cached queries against the store API
+
+#### Searching for feed feeds
+
+```
+GET /search/:query
+```
+
+- `:query` The url-encoded search query.
+
+The response is an `Array()` matching `feed()` objects or an empty `Array()` if no matches were found.
+
+#### Looking up guids
+
+```
+GET /lookup/:query
+```
+
+- `:query` An url-encoded list of guids separated by commas.
+
+Responds like `/search`.
+
+### Additional endpoints
+
+#### Getting search term suggestions
+
+```
+GET /suggest/:query
+```
+
+- `:query` Here the query is an alphanumeric search term fragment.
+
+This query responds with an `Array()` of search terms—of type `String()`—already in the cache and matching the query.
+
+#### The version of the API
+
+`GET /`
+
+Response
+
+- `name` The name of the server
+- `version` The version of the API (the package version)
 
 ## License
 

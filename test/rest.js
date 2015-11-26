@@ -73,6 +73,7 @@ test('basic REST API', { bail: true }, function (t) {
           var found = JSON.parse(buf)
           var wanted = response.payload || response
           if (found instanceof Array && wanted instanceof Array) {
+            t.is(found.length, wanted.length)
             wanted.forEach(function (it, i) {
               t.same(found[i], it)
             })

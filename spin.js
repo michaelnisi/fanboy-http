@@ -28,7 +28,7 @@ function path () {
 
 var current
 function opts (t) {
-  if (!!current && Math.random() > 0.8) return current
+  if (!!current && Math.random() > 0.99) return current
   current = {
     'https': {
       host: '10.0.1.24',
