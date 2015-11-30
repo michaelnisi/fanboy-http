@@ -83,6 +83,9 @@ function request (max) {
     }
     req.on('error', reqError)
     req.end()
+    if (Math.random() > 0.75) {
+      req.abort()
+    }
   }
   for (var i = 0; i < max; i++) go()
 }

@@ -1,9 +1,10 @@
 var common = require('./lib/common')
 var fs = require('fs')
 var http = require('http')
-var path = require('path')
-var test = require('tap').test
 var nock = require('nock')
+var path = require('path')
+var rimraf = require('rimraf')
+var test = require('tap').test
 
 // TODO: Write tests for all endpoints
 
@@ -104,7 +105,10 @@ test('basic REST API', { bail: true }, function (t) {
         go(children, function () {
           server.stop(function (er) {
             if (er) throw er
-            cb()
+            rimraf(server.location, function (er) {
+              if (er) throw er
+              cb()
+            })
           })
         })
       })

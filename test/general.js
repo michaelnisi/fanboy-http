@@ -43,3 +43,14 @@ test('defaults', function (t) {
   })
   t.end()
 })
+
+test('payloads', function (t) {
+  var f = FanboyHTTP.freshPayloads
+  var wanted = {
+    404: '{"error":"not found","reason":"not an endpoint"}',
+    500: '{"error":"not ok","reason":"who knows"}'
+  }
+  var found = f()
+  t.same(found, wanted)
+  t.end()
+})

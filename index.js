@@ -3,6 +3,7 @@
 module.exports = exports = FanboyService
 
 var Negotiator = require('negotiator')
+var Readable = require('stream').Readable
 var assert = require('assert')
 var fanboy = require('fanboy')
 var fs = require('fs')
@@ -66,12 +67,13 @@ function respond (req, res, statusCode, payload, ts) {
 
   function onfinish () {
     req = null
+
     res.removeListener('close', onclose)
     res.removeListener('finish', onfinish)
     res = null
   }
   function onclose () {
-    log.warn('connection terminated: ' + req.url)
+    log.warn('connection terminated', req.url)
     onfinish()
   }
   var gz = getGz(req)
@@ -103,15 +105,18 @@ function respond (req, res, statusCode, payload, ts) {
 function ok (er) {
   var whitelist = RegExp([
     'fanboy: unexpected response 400',
-    'fanboy: guid',
-    'fanboy: socket hang up'
+    'fanboy: guid'
   ].join('|'))
   var msg = er.message
   return msg.match(whitelist) !== null
 }
 
-function errorHandler (er, log) {
-  log = log || this.log
+function errorHandler (er) {
+  var log = this.log
+  var stopping = this.stopping
+  if (stopping) {
+    return log.warn('error handler called while stopping', er)
+  }
   if (ok(er)) {
     log.warn(er.message)
   } else {
@@ -125,84 +130,109 @@ function errorHandler (er, log) {
   }
 }
 
-function query (s, state, queries, cb) {
-  var data = ''
+function StaticHandler (payload) {
+  Readable.call(this)
+  this.push(payload)
+  this.push(null)
+}
+
+util.inherits(StaticHandler, Readable)
+
+function root (state, ctx, params) {
+  if (!root.payload) {
+    root.payload = JSON.stringify({
+      name: 'fanboy',
+      version: state.version
+    })
+  }
+  return new StaticHandler(root.payload)
+}
+
+function StreamHandler (context, queries, source) {
+  Readable.call(this)
+  this.context = context
+  this.queries = queries
+  this.source = source
+
+  var me = this
+
+  function onerror (er) {
+    me.emit('error', er)
+  }
+  var ok = true
   function read () {
     var chunk
-    while ((chunk = s.read()) !== null) {
-      data += chunk
+    while (ok && (chunk = source.read()) !== null) {
+      ok = me.push(chunk)
+    }
+    var more = chunk !== null
+    if (!ok && more) {
+      me.once('drain', function () {
+        ok = true
+        read()
+      })
     }
   }
-  function deinit () {
-    s.removeListener('drain', write)
-    s.removeListener('end', onend)
-    s.removeListener('error', onerror)
-    s.removeListener('readable', read)
-    s = null
-    state = null
-    queries = null
-    cb = null
-  }
   function onend () {
-    var payload = data
-    cb(null, 200, payload)
-    deinit()
-  }
-  function onerror (er) {
-    errorHandler(er, state.log)
-  }
-  s.on('end', onend)
-  s.on('error', onerror)
-  s.on('readable', read)
+    source.removeListener('end', onend)
+    source.removeListener('error', onerror)
+    source.removeListener('readable', read)
 
+    me.context = null
+    me.queries = null
+    me.source = null
+
+    me.push(null)
+  }
+  source.on('end', onend)
+  source.on('error', onerror)
+  source.on('readable', read)
+}
+
+util.inherits(StreamHandler, Readable)
+
+StreamHandler.prototype._read = function (size) {
+  var source = this.source
+  var queries = this.queries
+
+  if (source._writableState.ended) { return }
+  if (this.context.closed) {
+    return source.end()
+  }
   function write () {
-    var q = queries.shift()
-    if (q === undefined) {
-      s.end()
+    var ok = !source._readableState.needDrain
+    var query
+    while (ok && (query = queries.shift()) !== undefined) {
+      ok = source.write(query)
+    }
+    var more = queries.length > 0
+    if (!ok && more) {
+      source.once('drain', write)
     } else {
-      if (s.write(q)) {
-        write()
-      } else {
-        s.once('drain', write)
-      }
+      source.end()
     }
   }
   write()
 }
 
-function root (state, params, cb) {
-  var payload = JSON.stringify({
-    name: 'fanboy',
-    version: state.version
-  })
-  cb(null, 200, payload)
-}
-
-function notFound (state, params, cb) {
-  var er = new Error('not found')
-  var payload = JSON.stringify({
-    error: 'not found',
-    reason: 'not an endpoint'
-  })
-  cb(er, 404, payload)
-}
-
-function lookup (state, params, cb) {
-  var s = state.fanboy.lookup()
+function lookup (state, ctx, params) {
+  // Burk buffering to allow compartmentalized aborting.
+  var opts = { highWaterMark: 0 }
+  var s = state.fanboy.lookup(opts)
   var queries = unescape(params.query).split(',')
-  query(s, state, queries, cb)
+  return new StreamHandler(ctx, queries, s)
 }
 
-function search (state, params, cb) {
+function search (state, ctx, params) {
   var s = state.fanboy.search()
   var queries = [unescape(params.query)]
-  query(s, state, queries, cb)
+  return new StreamHandler(ctx, queries, s)
 }
 
-function suggest (state, params, cb) {
+function suggest (state, ctx, params) {
   var s = state.fanboy.suggest()
   var queries = [unescape(params.query)]
-  query(s, state, queries, cb)
+  return new StreamHandler(ctx, queries, s)
 }
 
 function router () {
@@ -243,11 +273,52 @@ function FanboyService (opts) {
   this.fanboy = null
   this.repl = null
   this.server = null
+  this.stopping = false
 
   mkdirp.sync(this.location)
 }
 
-// Please note that restarting is undefined.
+function Context (closed) {
+  this.closed = closed
+}
+
+function freshPayloads () {
+  return [
+    {
+      statusCode: 404,
+      error: 'not found',
+      reason: 'not an endpoint'
+    },
+    {
+      statusCode: 500,
+      error: 'not ok',
+      reason: 'who knows'
+    }
+  ].reduce(function (acc, p) {
+    var code = p.statusCode
+    var o = {
+      error: p.error,
+      reason: p.reason
+    }
+    acc[code] = JSON.stringify(o)
+    return acc
+  }, Object.create(null))
+}
+
+function freshState (t) {
+  return Object.defineProperties(Object.create(null), {
+    'fanboy': { value: t.fanboy },
+    'log': { value: t.log },
+    'version': { value: t.version },
+    'stopping': {
+      get: function () {
+        return t.stopping
+      }
+    }
+  })
+}
+
+// WARNING: restarting is undefined.
 
 FanboyService.prototype.start = function (cb) {
   cb = cb || nop
@@ -269,42 +340,85 @@ FanboyService.prototype.start = function (cb) {
 
   // Setting up context for the request handler
 
-  var payloads = {
-    500: JSON.stringify({
-      error: 'not ok',
-      reason: 'could be all kinds of things actually'
-    })
-  }
-
+  var me = this
   var router = this.router
-
-  var state = {
-    fanboy: cache,
-    log: log,
-    version: this.version
-  }
+  var payloads = freshPayloads()
+  var state = freshState(this)
 
   function onrequest (req, res) {
     var ts = time()
     log.info(req.method + ' ' + req.url)
+
+    var ctx = new Context(false)
+    function onclose () {
+      ctx.closed = true
+    }
+    req.on('close', onclose)
+    res.on('close', onclose)
+
     function terminate (er, statusCode, payload) {
+      if (ctx.closed) {
+        er = new Error('underlying connection closed')
+      }
       if (er) {
-        log.warn(req.url + ' ' + er.message)
+        log.warn(er.message, req.url)
         statusCode = statusCode || 500
         payload = payload || payloads[statusCode] || payloads[500]
       }
-      respond(req, res, statusCode, payload, ts)
+
+      if (ctx.closed) {
+        res.end()
+      } else {
+        respond(req, res, statusCode, payload, ts)
+      }
+
+      req.removeListener('close', onclose)
       req = null
+
+      res.removeListener('close', onclose)
       res = null
+
+      ctx = null
     }
+
     var route = router.get(req.url)
-    var handler = route.handler || notFound
+    var handler = route.handler
+    if (!handler) {
+      return terminate(new Error('not found'), 404)
+    }
+
     var params = route.params
-    handler(state, params, terminate)
+    var s = handler(state, ctx, params)
+
+    function onerror (er) {
+      errorHandler.call(me, er)
+    }
+    var payload = ''
+    function onreadable () {
+      var chunk
+      while ((chunk = s.read()) !== null) {
+        payload += chunk
+      }
+    }
+    function onend () {
+      s.removeListener('end', onend)
+      s.removeListener('readable', onreadable)
+      s.removeListener('error', onerror)
+
+      terminate(null, 200, payload)
+    }
+    s.on('end', onend)
+    s.on('error', onerror)
+    s.on('readable', onreadable)
   }
 
   var port = this.port
   var server = http.createServer(onrequest)
+
+  server.on('clientError', function (exc, sock) {
+    log.warn('client error', exc, sock)
+  })
+
   server.listen(port, function (er) {
     log.info('listening on port %s', port)
     log.info('allowing %s sockets', http.globalAgent.maxSockets)
@@ -315,6 +429,7 @@ FanboyService.prototype.start = function (cb) {
 
 FanboyService.prototype.stop = function (cb) {
   cb = cb || nop
+  this.stopping = true
   var me = this
   this.server.close(function (er) {
     me.fanboy.close(cb)
@@ -325,9 +440,9 @@ if (parseInt(process.env.NODE_TEST, 10) === 1) {
   exports.FanboyService = FanboyService
   exports.debug = debug
   exports.defaults = defaults
+  exports.freshPayloads = freshPayloads
   exports.lookup = lookup
   exports.nop = nop
-  exports.query = query
   exports.root = root
   exports.router = router
   exports.search = search
