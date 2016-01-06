@@ -216,7 +216,7 @@ StreamHandler.prototype._read = function (size) {
 }
 
 function lookup (state, ctx, params) {
-  // Burk buffering to allow compartmentalized aborting.
+  // Burke buffering to allow compartmentalized aborting.
   var opts = { highWaterMark: 0 }
   var s = state.fanboy.lookup(opts)
   var queries = unescape(params.query).split(',')
