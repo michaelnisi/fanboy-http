@@ -55,7 +55,7 @@ function latency (t, log) {
   var lat = ns(time(t))
   var limit = 21e6
   if (lat > limit) {
-    log.warn('high latency: ' + (lat / 1e6).toFixed(2) + ' ms')
+    log.warn({ ms: (lat / 1e6).toFixed(2) }, 'high latency')
   }
   return lat
 }
@@ -73,7 +73,7 @@ function respond (req, res, statusCode, payload, ts) {
     res = null
   }
   function onclose () {
-    log.warn('connection terminated', req.url)
+    log.warn({ url: req.url }, 'connection terminated')
     onfinish()
   }
   var gz = getGz(req)
@@ -102,10 +102,14 @@ function respond (req, res, statusCode, payload, ts) {
   res.on('finish', onfinish)
 }
 
+// TODO: Review errors
+// Should we crash on 'falling back on cache: ENOTFOUND'?
+
 function ok (er) {
   var whitelist = RegExp([
     'fanboy: unexpected response 400',
-    'fanboy: guid'
+    'fanboy: guid',
+    'fanboy: falling back on cache'
   ].join('|'))
   var msg = er.message
   return msg.match(whitelist) !== null
@@ -324,10 +328,9 @@ FanboyService.prototype.start = function (cb) {
   cb = cb || nop
 
   var log = this.log
-
-  log.info('starting pid %s', process.pid)
-  log.info('using database at %s', this.location)
-  log.info('with cache size %s MB', this.cacheSize / 1024 / 1024)
+  var mb = this.cacheSize / 1024 / 1024
+  var info = { pid: process.pid, location: this.location, cacheSize: mb }
+  log.info(info, 'starting')
 
   var cache = fanboy(this.location, {
     cacheSize: this.cacheSize,
@@ -347,7 +350,7 @@ FanboyService.prototype.start = function (cb) {
 
   function onrequest (req, res) {
     var ts = time()
-    log.info(req.method + ' ' + req.url)
+    log.info({ method: req.method, url: req.url }, 'request')
 
     var ctx = new Context(false)
     function onclose () {
@@ -361,7 +364,7 @@ FanboyService.prototype.start = function (cb) {
         er = new Error('underlying connection closed')
       }
       if (er) {
-        log.warn(er.message, req.url)
+        log.warn({ url: req.url }, er.message)
         statusCode = statusCode || 500
         payload = payload || payloads[statusCode] || payloads[500]
       }
@@ -416,12 +419,12 @@ FanboyService.prototype.start = function (cb) {
   var server = http.createServer(onrequest)
 
   server.on('clientError', function (exc, sock) {
-    log.warn('client error', exc, sock)
+    log.warn({ exc: exc, sock: sock }, 'client error')
   })
 
   server.listen(port, function (er) {
-    log.info('listening on port %s', port)
-    log.info('allowing %s sockets', http.globalAgent.maxSockets)
+    var info = { port: port, maxSockets: http.globalAgent.maxSockets }
+    log.info(info, 'listening')
     cb(er)
   })
   this.server = server
