@@ -328,8 +328,8 @@ FanboyService.prototype.start = function (cb) {
   cb = cb || nop
 
   var log = this.log
-  var mb = this.cacheSize / 1024 / 1024
-  var info = { pid: process.pid, location: this.location, cacheSize: mb }
+  var mb = this.cacheSize / 1024 / 1024 + ' MB'
+  var info = { version: this.version, pid: process.pid, location: this.location, cacheSize: mb }
   log.info(info, 'starting')
 
   var cache = fanboy(this.location, {
