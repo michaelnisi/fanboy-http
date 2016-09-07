@@ -328,9 +328,12 @@ FanboyService.prototype.start = function (cb) {
   cb = cb || nop
 
   var log = this.log
-  var mb = this.cacheSize / 1024 / 1024 + ' MB'
-  var info = { version: this.version, pid: process.pid, location: this.location, cacheSize: mb }
-  log.info(info, 'starting')
+  var info = {
+    version: this.version,
+    location: this.location,
+    cacheSize: this.cacheSize
+  }
+  log.info(info, 'start')
 
   var cache = fanboy(this.location, {
     cacheSize: this.cacheSize,
@@ -424,7 +427,7 @@ FanboyService.prototype.start = function (cb) {
 
   server.listen(port, function (er) {
     var info = { port: port, maxSockets: http.globalAgent.maxSockets }
-    log.info(info, 'listening')
+    log.info(info, 'listen')
     cb(er)
   })
   this.server = server

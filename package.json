@@ -1,6 +1,6 @@
 {
   "name": "fanboy-http",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "fanboy HTTP API",
   "main": "index.js",
   "directories": {
