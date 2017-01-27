@@ -223,19 +223,19 @@ function lookup (state, ctx, params) {
   // Burke buffering to allow compartmentalized aborting.
   var opts = { highWaterMark: 0 }
   var s = state.fanboy.lookup(opts)
-  var queries = unescape(params.query).split(',')
+  var queries = decodeURI(params.query).split(',')
   return new StreamHandler(ctx, queries, s)
 }
 
 function search (state, ctx, params) {
   var s = state.fanboy.search()
-  var queries = [unescape(params.query)]
+  var queries = [decodeURI(params.query)]
   return new StreamHandler(ctx, queries, s)
 }
 
 function suggest (state, ctx, params) {
   var s = state.fanboy.suggest()
-  var queries = [unescape(params.query)]
+  var queries = [decodeURI(params.query)]
   return new StreamHandler(ctx, queries, s)
 }
 
