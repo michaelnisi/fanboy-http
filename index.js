@@ -1,36 +1,35 @@
-// fanboy-http - Fanboy HTTP API
+'use-strict'
+
+// fanboy-http - search iTunes
 
 module.exports = exports = FanboyService
 
-var Negotiator = require('negotiator')
-var Readable = require('stream').Readable
-var assert = require('assert')
-var fanboy = require('fanboy')
-var fs = require('fs')
-var http = require('http')
-var httphash = require('http-hash')
-var mkdirp = require('mkdirp')
-var path = require('path')
-var util = require('util')
-var zlib = require('zlib')
+const Negotiator = require('negotiator')
+const Readable = require('stream').Readable
+const assert = require('assert')
+const fanboy = require('fanboy')
+const fs = require('fs')
+const http = require('http')
+const httphash = require('http-hash')
+const mkdirp = require('mkdirp')
+const path = require('path')
+const podcast = require('./lib/podcast')
+const util = require('util')
+const zlib = require('zlib')
 
 function nop () {}
 
-var debugging = parseInt(process.env.NODE_DEBUG, 10) === 1
-var debug = (function () {
-  return debugging ? function (o) {
-    console.error('** fanboy-http: %s', util.inspect(o))
-  } : nop
-})()
-var time = debugging ? process.hrtime : nop
-var ns = (function () {
-  return debugging ? function (t) {
+// Measure time for log levels below error, which would be 50 in bunyan.
+const debugging = parseInt(process.env.FANBOY_LOG_LEVEL, 10) < 50
+const time = debugging ? process.hrtime : nop
+const ns = (() => {
+  return debugging ? (t) => {
     return t[0] * 1e9 + t[1]
   } : nop
 })()
 
 function headers (len, lat, enc) {
-  var headers = {
+  const headers = {
     'Cache-Control': 'max-age=' + 86400,
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': len
@@ -45,17 +44,15 @@ function headers (len, lat, enc) {
 }
 
 function getGz (req) {
-  var gz = false
-  var neg = new Negotiator(req)
-  gz = neg.preferredEncoding(['gzip', 'identity']) === 'gzip'
-  return gz
+  const neg = new Negotiator(req)
+  return neg.preferredEncoding(['gzip', 'identity']) === 'gzip'
 }
 
 function latency (t, log) {
-  var lat = ns(time(t))
-  var limit = 21e6
+  const lat = ns(time(t))
+  const limit = 21e6
   if (lat > limit) {
-    log.warn({ ms: (lat / 1e6).toFixed(2) }, 'high latency')
+    log.warn({ ms: (lat / 1e6).toFixed(2) }, 'latency')
   }
   return lat
 }
@@ -63,64 +60,59 @@ function latency (t, log) {
 function respond (req, res, statusCode, payload, ts) {
   assert(!res.finished, 'attempted to respond more than once')
 
-  var log = req.log || { warn: nop }
+  const log = req.log || { warn: nop }
 
   function onfinish () {
-    req = null
-
     res.removeListener('close', onclose)
     res.removeListener('finish', onfinish)
-    res = null
   }
   function onclose () {
-    log.warn({ url: req.url }, 'connection terminated')
+    log.warn('connection terminated: ', { url: req.url })
     onfinish()
   }
-  var gz = getGz(req)
+  const gz = getGz(req)
   function lat () {
     if (ts instanceof Array) {
       return latency(ts, log)
     }
   }
-  function write (headers, data) {
-    if (req.method === 'HEAD') data = null
-    res.writeHead(statusCode, headers)
-    res.end(data)
-  }
   if (gz) {
-    zlib.gzip(payload, function (er, zipped) {
+    zlib.gzip(payload, (er, zipped) => {
       if (!res) return
-      var h = headers(zipped.length, lat(), 'gzip')
-      write(h, zipped)
+      const h = headers(zipped.length, lat(), 'gzip')
+      res.writeHead(statusCode, h)
+      res.end(zipped)
     })
   } else {
-    var len = Buffer.byteLength(payload, 'utf8')
-    var h = headers(len, lat())
-    write(h, payload)
+    const len = Buffer.byteLength(payload, 'utf8')
+    const h = headers(len, lat())
+    res.writeHead(statusCode, h)
+    res.end(payload)
   }
   res.on('close', onclose)
   res.on('finish', onfinish)
 }
 
-// TODO: Review errors
-// Should we crash on 'falling back on cache: ENOTFOUND'?
+// TODO: Whitelist 'falling back on cache: ENOTFOUND'
 
+const whitelist = RegExp([
+  'fanboy: unexpected response 400',
+  'fanboy: guid',
+  'fanboy: falling back on cache'
+].join('|'), 'i')
+
+// Assess error by its message returning `true`, if it’s OK to continue.
 function ok (er) {
-  var whitelist = RegExp([
-    'fanboy: unexpected response 400',
-    'fanboy: guid',
-    'fanboy: falling back on cache'
-  ].join('|'))
-  var msg = er.message
-  return msg.match(whitelist) !== null
+  let ok = false
+  if (er) {
+    const msg = er.message
+    if (msg) ok = msg.match(whitelist) !== null
+  }
+  return ok
 }
 
 function errorHandler (er) {
   var log = this.log
-  var stopping = this.stopping
-  if (stopping) {
-    return log.warn('error handler called while stopping', er)
-  }
   if (ok(er)) {
     log.warn(er.message)
   } else {
@@ -277,7 +269,6 @@ function FanboyService (opts) {
   this.fanboy = null
   this.repl = null
   this.server = null
-  this.stopping = false
 
   mkdirp.sync(this.location)
 }
@@ -313,33 +304,27 @@ function freshState (t) {
   return Object.defineProperties(Object.create(null), {
     'fanboy': { value: t.fanboy },
     'log': { value: t.log },
-    'version': { value: t.version },
-    'stopping': {
-      get: function () {
-        return t.stopping
-      }
-    }
+    'version': { value: t.version }
   })
 }
 
-// WARNING: restarting is undefined.
+FanboyService.prototype.start = function (cb = nop) {
+  const log = this.log
 
-FanboyService.prototype.start = function (cb) {
-  cb = cb || nop
-
-  var log = this.log
-  var info = {
+  const info = {
     version: this.version,
     location: this.location,
     cacheSize: this.cacheSize
   }
   log.info(info, 'start')
 
-  var cache = fanboy(this.location, {
+  const cache = fanboy(this.location, {
     cacheSize: this.cacheSize,
     media: 'podcast',
+    result: podcast,
     ttl: this.ttl
   })
+
   this.errorHandler = errorHandler.bind(this)
   cache.on('error', this.errorHandler)
   this.fanboy = cache
@@ -433,18 +418,18 @@ FanboyService.prototype.start = function (cb) {
   this.server = server
 }
 
-FanboyService.prototype.stop = function (cb) {
-  cb = cb || nop
-  this.stopping = true
-  var me = this
-  this.server.close(function (er) {
-    me.fanboy.close(cb)
-  })
-}
+const TEST = process.mainModule.filename.match(/test/) !== null
 
-if (parseInt(process.env.NODE_TEST, 10) === 1) {
+if (TEST) {
+  FanboyService.prototype.stop = function (cb = nop) {
+    this.server.close((er) => {
+      this.fanboy.close((er) => {
+        this.fanboy.removeAllListeners()
+        cb(er)
+      })
+    })
+  }
   exports.FanboyService = FanboyService
-  exports.debug = debug
   exports.defaults = defaults
   exports.freshPayloads = freshPayloads
   exports.lookup = lookup

@@ -15,29 +15,15 @@ function parse (file) {
   return json instanceof Array ? json : [json]
 }
 
-function countTests (children) {
-  return children.length * 2 + children.reduce(function (a, child) {
-    var remote = child.remote
-    if (remote) {
-      var remotes = remote instanceof Array ? remote : [remote]
-      return a + remotes.length * 2
-    } else {
-      return a
-    }
-  }, 0)
-}
-
 test('basic REST API', { bail: true }, function (t) {
   var p = path.resolve(__dirname, 'data')
   var files = fs.readdirSync(p)
   var scopes = []
-  var count = 0
   var tests = files.reduce(function (acc, file) {
     if (path.extname(file) !== '.json') {
       return acc
     }
     var children = parse(file)
-    count += countTests(children)
 
     function go (children, cb) {
       var child = children.shift()

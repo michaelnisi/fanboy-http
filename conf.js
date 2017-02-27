@@ -1,29 +1,30 @@
-// config - configure fanboy-http
+'use strict'
 
-var bunyan = require('bunyan')
-var http = require('http')
+// conf - configure fanboy-http
+
+const bunyan = require('bunyan')
+const http = require('http')
+
+function level (l) {
+  return [10, 20, 30, 40, 50, 60].includes(l) ? l : null
+}
 
 function log () {
-  var level = 20
-  if (parseInt(process.env.NODE_DEBUG, 10) !== 1) {
-    level = parseInt(process.env.NODE_LOG_LEVEL, 10)
-  }
-  var levels = [10, 20, 30, 40, 50, 60]
-  if (!levels.some(function (l) { return l === level })) level = 40
+  const l = level(parseInt(process.env.FANBOY_LOG_LEVEL, 10))
+  if (!l) return null
   return bunyan.createLogger({
     name: 'fanboy',
-    level: level,
+    level: l,
     serializers: bunyan.stdSerializers
   })
 }
 
-exports.log = log()
-exports.location = process.env.LEVEL_DB_LOCATION
 exports.cacheSize = process.env.LEVEL_DB_CACHE_SIZE
-exports.port = 8383
+exports.location = process.env.LEVEL_DB_LOCATION
+exports.log = log()
 exports.maxSockets = http.globalAgent.maxSockets = 4096
+exports.port = process.env.PORT
 
 if (module === require.main) {
   console.log(exports)
-  process.exit(0)
 }
