@@ -8,9 +8,7 @@ const path = require('path')
 const rimraf = require('rimraf')
 const test = require('tap').test
 
-// TODO: Use nock in these tests
-
-test('abort request', { skip: true }, (t) => {
+test('abort request', (t) => {
   const server = common.freshServer()
   function done () {
     server.stop((er) => {
@@ -34,9 +32,9 @@ test('abort request', { skip: true }, (t) => {
       })
       res.resume()
     })
-    setTimeout(() => {
+    process.nextTick(() => {
       req.abort()
-    }, Math.random() * 100)
+    })
     req.on('error', (er) => {
       if (er.code === 'ECONNRESET') {
         done()
@@ -44,11 +42,10 @@ test('abort request', { skip: true }, (t) => {
         throw er
       }
     })
-    if (Math.random() > 0.5) req.end()
   })
 })
 
-test('destroy socket', { skip: false }, (t) => {
+test('destroy socket', (t) => {
   const server = common.freshServer()
   function done () {
     server.stop((er) => {
@@ -82,11 +79,10 @@ test('destroy socket', { skip: false }, (t) => {
         throw er
       }
     })
-    if (Math.random() > 0.5) req.end()
   })
 })
 
-test('aborted lookup of multiple guids', { skip: true }, (t) => {
+test('aborted lookup of multiple guids', (t) => {
   const p = path.resolve(__dirname, 'data', 'GUIDS')
   const file = fs.createReadStream(p)
   const lines = lino({ encoding: 'utf8' })
@@ -122,16 +118,13 @@ test('aborted lookup of multiple guids', { skip: true }, (t) => {
       const req = http.request(opts, (res) => {
         res.resume()
       })
-      setTimeout(() => {
+      process.nextTick(() => {
         req.abort()
-      }, 100)
+      })
       req.on('error', (er) => {
         if (er.code !== 'ECONNRESET') throw er
-        setTimeout(() => {
-          done()
-        }, 1000)
+        done()
       })
-      req.end()
     })
   }
 })
