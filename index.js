@@ -1,4 +1,4 @@
-'use-strict'
+'use strict'
 
 // fanboy-http - search iTunes
 

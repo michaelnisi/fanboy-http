@@ -1,64 +1,62 @@
-var common = require('./lib/common')
-var fs = require('fs')
-var http = require('http')
-var nock = require('nock')
-var path = require('path')
-var rimraf = require('rimraf')
-var test = require('tap').test
-
-// TODO: Write tests for all endpoints
+const common = require('./lib/common')
+const fs = require('fs')
+const http = require('http')
+const nock = require('nock')
+const path = require('path')
+const rimraf = require('rimraf')
+const test = require('tap').test
 
 function parse (file) {
-  var p = path.resolve(__dirname, 'data', file)
-  var input = fs.readFileSync(p)
-  var json = JSON.parse(input)
+  const p = path.resolve(__dirname, 'data', file)
+  const input = fs.readFileSync(p)
+  const json = JSON.parse(input)
   return json instanceof Array ? json : [json]
 }
 
-test('basic REST API', { bail: true }, function (t) {
-  var p = path.resolve(__dirname, 'data')
-  var files = fs.readdirSync(p)
-  var scopes = []
-  var tests = files.reduce(function (acc, file) {
+test('basic REST API', { bail: true }, (t) => {
+  const p = path.resolve(__dirname, 'data')
+  const files = fs.readdirSync(p)
+  const scopes = []
+  const tests = files.reduce((acc, file) => {
     if (path.extname(file) !== '.json') {
       return acc
     }
-    var children = parse(file)
+    const children = parse(file)
 
     function go (children, cb) {
-      var child = children.shift()
+      const child = children.shift()
       if (!child) {
         cb()
         return
       }
-      var remote = child.remote
+      const remote = child.remote
       if (remote) {
-        var remotes = remote instanceof Array ? remote : [remote]
-        remotes.forEach(function (r) {
-          var scope = nock(r.host)
-          var m = r.method || 'GET'
-          var sc = r.statusCode || 200
-          scope.intercept(r.path, m).reply(sc, function () {
+        const remotes = remote instanceof Array ? remote : [remote]
+        remotes.forEach((r) => {
+          const scope = nock(r.host)
+          const m = r.method || 'GET'
+          const sc = r.statusCode || 200
+          scope.intercept(r.path, m).reply(sc, () => {
             t.pass('should be hit')
             if (!r.file) return null
-            var p = path.resolve(__dirname, 'data', r.file)
+            const p = path.resolve(__dirname, 'data', r.file)
             return fs.createReadStream(p)
           }, r.headers)
           scopes.push(scope)
         })
       }
-      var opts = child.request
-      var response = child.response
-      var sc = response.statusCode
-      var req = http.request(opts, function (res) {
+      const opts = child.request
+      const response = child.response
+      const sc = response.statusCode
+      const req = http.request(opts, (res) => {
         t.is(res.statusCode, sc || 200)
-        var buf = ''
-        res.on('data', function (chunk) {
+        let buf = ''
+        res.on('data', (chunk) => {
           buf += chunk
         })
-        res.on('end', function () {
-          var found = JSON.parse(buf)
-          var wanted = response.payload || response
+        res.on('end', () => {
+          const found = JSON.parse(buf)
+          const wanted = response.payload || response
           if (found instanceof Array && wanted instanceof Array) {
             t.is(found.length, wanted.length)
             wanted.forEach(function (it, i) {
@@ -68,7 +66,7 @@ test('basic REST API', { bail: true }, function (t) {
             t.match(found, wanted)
           }
           if (sc === 202) {
-            setTimeout(function () {
+            setTimeout(() => {
               go(children, cb)
             }, 100)
           } else {
@@ -76,19 +74,19 @@ test('basic REST API', { bail: true }, function (t) {
           }
         })
       })
-      var payload = opts.payload
+      const payload = opts.payload
       if (payload) {
         req.end(JSON.stringify(payload))
       } else {
         req.end()
       }
     }
-    var closure = function (cb) {
+    const closure = function (cb) {
       t.comment(file)
-      var server = common.freshServer()
+      const server = common.freshServer()
       server.start(function (er) {
         if (er) throw er
-        go(children, function () {
+        go(children, () => {
           server.stop(function (er) {
             if (er) throw er
             rimraf(server.location, function (er) {
@@ -103,9 +101,9 @@ test('basic REST API', { bail: true }, function (t) {
     return acc
   }, [])
   function run (tests) {
-    var f = tests.shift()
+    const f = tests.shift()
     if (f) {
-      f(function () {
+      f(() => {
         run(tests)
       })
     } else {
@@ -117,4 +115,3 @@ test('basic REST API', { bail: true }, function (t) {
   }
   run(tests)
 })
-

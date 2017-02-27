@@ -1,4 +1,4 @@
-'use-strict'
+'use strict'
 
 const common = require('./lib/common')
 const fs = require('fs')

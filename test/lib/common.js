@@ -1,19 +1,21 @@
+'use strict'
+
 // common - common test stuff
 
 exports.freshServer = freshServer
 
-var os = require('os')
-var path = require('path')
-var server = require('../../')
+const os = require('os')
+const path = require('path')
+const server = require('../../')
 
 function freshName () {
-  var name = 'fanboy-http-' + Math.floor(Math.random() * (1 << 24))
-  var tmp = os.tmpdir()
+  const name = 'fanboy-http-' + Math.floor(Math.random() * (1 << 24))
+  const tmp = os.tmpdir()
   return path.resolve(tmp, name)
 }
 
 function freshServer () {
-  var opts = {
+  const opts = {
     location: freshName(),
     port: 1337
   }
