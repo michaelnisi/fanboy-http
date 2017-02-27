@@ -1,41 +1,43 @@
-var common = require('./lib/common')
-var fs = require('fs')
-var http = require('http')
-var lino = require('lino')
-var path = require('path')
-var rimraf = require('rimraf')
-var test = require('tap').test
+'use-strict'
+
+const common = require('./lib/common')
+const fs = require('fs')
+const http = require('http')
+const lino = require('lino')
+const path = require('path')
+const rimraf = require('rimraf')
+const test = require('tap').test
 
 // TODO: Use nock in these tests
 
-test('abort request', { skip: false }, function (t) {
-  var server = common.freshServer()
+test('abort request', { skip: true }, (t) => {
+  const server = common.freshServer()
   function done () {
-    server.stop(function (er) {
+    server.stop((er) => {
       if (er) throw er
-      rimraf(server.location, function (er) {
+      rimraf(server.location, (er) => {
         if (er) throw er
         t.end()
       })
     })
   }
-  server.start(function (er) {
+  server.start((er) => {
     if (er) throw er
-    var opts = {
+    const opts = {
       host: 'localhost',
       port: 1337,
       path: '/search/apple'
     }
-    var req = http.request(opts, function (res) {
-      res.on('end', function () {
+    const req = http.request(opts, (res) => {
+      res.on('end', () => {
         done()
       })
       res.resume()
     })
-    setTimeout(function () {
+    setTimeout(() => {
       req.abort()
     }, Math.random() * 100)
-    req.on('error', function (er) {
+    req.on('error', (er) => {
       if (er.code === 'ECONNRESET') {
         done()
       } else {
@@ -46,34 +48,34 @@ test('abort request', { skip: false }, function (t) {
   })
 })
 
-test('destroy socket', { skip: false }, function (t) {
-  var server = common.freshServer()
+test('destroy socket', { skip: false }, (t) => {
+  const server = common.freshServer()
   function done () {
-    server.stop(function (er) {
+    server.stop((er) => {
       if (er) throw er
-      rimraf(server.location, function (er) {
+      rimraf(server.location, (er) => {
         if (er) throw er
         t.end()
       })
     })
   }
-  server.start(function (er) {
+  server.start((er) => {
     if (er) throw er
-    var opts = {
+    const opts = {
       host: 'localhost',
       port: 1337,
       path: '/search/apple'
     }
-    var req = http.request(opts, function (res) {
-      res.on('end', function () {
+    const req = http.request(opts, (res) => {
+      res.on('end', () => {
         done()
       })
       res.resume()
     })
-    req.on('socket', function (socket) {
+    req.on('socket', (socket) => {
       socket.destroy()
     })
-    req.on('error', function (er) {
+    req.on('error', (er) => {
       if (er.code === 'ECONNRESET') {
         done()
       } else {
@@ -84,48 +86,48 @@ test('destroy socket', { skip: false }, function (t) {
   })
 })
 
-test('aborted lookup of multiple guids', function (t) {
-  var p = path.resolve(__dirname, 'data', 'GUIDS')
-  var file = fs.createReadStream(p)
-  var lines = lino({ encoding: 'utf8' })
+test('aborted lookup of multiple guids', { skip: true }, (t) => {
+  const p = path.resolve(__dirname, 'data', 'GUIDS')
+  const file = fs.createReadStream(p)
+  const lines = lino({ encoding: 'utf8' })
   file.pipe(lines)
 
-  var guids = []
-  lines.on('data', function (str) {
+  const guids = []
+  lines.on('data', (str) => {
     guids.push(str.trim())
   })
-  lines.on('end', function () {
+  lines.on('end', () => {
     t.ok(guids.length)
     go()
   })
 
   function go () {
-    var server = common.freshServer()
+    const server = common.freshServer()
     function done () {
-      server.stop(function (er) {
+      server.stop((er) => {
         if (er) throw er
-        rimraf(server.location, function (er) {
+        rimraf(server.location, (er) => {
           if (er) throw er
           t.end()
         })
       })
     }
-    server.start(function (er) {
+    server.start((er) => {
       if (er) throw er
-      var opts = {
+      const opts = {
         host: 'localhost',
         port: 1337,
         path: '/lookup/' + guids.join(',')
       }
-      var req = http.request(opts, function (res) {
+      const req = http.request(opts, (res) => {
         res.resume()
       })
-      setTimeout(function () {
+      setTimeout(() => {
         req.abort()
       }, 100)
-      req.on('error', function (er) {
+      req.on('error', (er) => {
         if (er.code !== 'ECONNRESET') throw er
-        setTimeout(function () {
+        setTimeout(() => {
           done()
         }, 1000)
       })
