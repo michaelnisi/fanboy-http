@@ -331,12 +331,11 @@ FanboyService.prototype.start = function (cb = nop) {
 
   // Setting up context for the request handler
 
-  var me = this
   var router = this.router
   var payloads = freshPayloads()
   var state = freshState(this)
 
-  function onrequest (req, res) {
+  const onrequest = (req, res) => {
     var ts = time()
     log.info({ method: req.method, url: req.url }, 'request')
 
@@ -364,12 +363,7 @@ FanboyService.prototype.start = function (cb = nop) {
       }
 
       req.removeListener('close', onclose)
-      req = null
-
       res.removeListener('close', onclose)
-      res = null
-
-      ctx = null
     }
 
     var route = router.get(req.url)
@@ -381,8 +375,8 @@ FanboyService.prototype.start = function (cb = nop) {
     var params = route.params
     var s = handler(state, ctx, params)
 
-    function onerror (er) {
-      errorHandler.call(me, er)
+    const onerror = (er) => {
+      errorHandler.call(this, er)
     }
     var payload = ''
     function onreadable () {
