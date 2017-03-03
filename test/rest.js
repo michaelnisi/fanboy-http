@@ -49,7 +49,7 @@ test('basic REST API', { bail: true }, (t) => {
       const response = child.response
       const sc = response.statusCode
       const req = http.request(opts, (res) => {
-        t.is(res.statusCode, sc || 200)
+        t.is(res.statusCode, sc || 200, file)
         let buf = ''
         res.on('data', (chunk) => {
           buf += chunk
@@ -58,7 +58,7 @@ test('basic REST API', { bail: true }, (t) => {
           const found = JSON.parse(buf)
           const wanted = response.payload || response
           if (found instanceof Array && wanted instanceof Array) {
-            t.is(found.length, wanted.length)
+            t.is(found.length, wanted.length, found)
             wanted.forEach(function (it, i) {
               t.same(found[i], it)
             })

@@ -10,7 +10,7 @@
     "host": "localhost",
     "port": 1337,
     "method": "GET",
-    "path": "/search/nyt"
+    "path": "/search?q=nyt"
   },
   "response": [
   {
@@ -141,7 +141,7 @@
     "host": "localhost",
     "port": 1337,
     "method": "GET",
-    "path": "/suggest/n"
+    "path": "/suggest?q=n"
   },
   "response": [
     "nyt"

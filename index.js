@@ -4,22 +4,22 @@
 
 module.exports = exports = FanboyService
 
+const HttpHash = require('http-hash')
 const Negotiator = require('negotiator')
-const Readable = require('stream').Readable
 const assert = require('assert')
 const fanboy = require('fanboy')
 const fs = require('fs')
 const http = require('http')
-const httphash = require('http-hash')
+const httpMethods = require('http-methods/method')
 const mkdirp = require('mkdirp')
 const path = require('path')
 const podcast = require('./lib/podcast')
-const util = require('util')
+const url = require('url')
 const zlib = require('zlib')
 
 function nop () {}
 
-// Measure time for log levels below error, which would be 50 in bunyan.
+// Measure time for log levels below ERROR (50).
 const debugging = parseInt(process.env.FANBOY_LOG_LEVEL, 10) < 50
 const time = debugging ? process.hrtime : nop
 const ns = (() => {
@@ -28,11 +28,22 @@ const ns = (() => {
   } : nop
 })()
 
+let v
+function version () {
+  if (v) return v
+  const p = path.join(__dirname, 'package.json')
+  const data = fs.readFileSync(p)
+  const pkg = JSON.parse(data)
+  v = pkg.version
+  return v
+}
+
 function headers (len, lat, enc) {
   const headers = {
     'Cache-Control': 'max-age=' + 86400,
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': len
+    'Content-Length': len,
+    'Fanboy-Version': version()
   }
   if (lat) {
     headers['Latency'] = lat
@@ -57,23 +68,30 @@ function latency (t, log) {
   return lat
 }
 
-function respond (req, res, statusCode, payload, ts) {
-  assert(!res.finished, 'attempted to respond more than once')
-
-  const log = req.log || { warn: nop }
+// A general responder for buffered payloads that applies gzip compression
+// if requested.
+//
+// - req IncomingMessage The request.
+// - res ServerResponse The response.
+// - statusCode Number The HTTP status code.
+// - payload Buffer | String The JSON payload.
+// - time Array | void The hi-res real time tuple of when the request hit.
+// - log The logger to use.
+function respond (req, res, statusCode, payload, time, log) {
+  assert(!res.finished, 'cannot respond more than once')
 
   function onfinish () {
     res.removeListener('close', onclose)
     res.removeListener('finish', onfinish)
   }
   function onclose () {
-    log.warn('connection terminated: ', { url: req.url })
+    log.warn('connection terminated: ' + req.url)
     onfinish()
   }
   const gz = getGz(req)
   function lat () {
-    if (ts instanceof Array) {
-      return latency(ts, log)
+    if (time instanceof Array) {
+      return latency(time, log)
     }
   }
   if (gz) {
@@ -111,140 +129,109 @@ function ok (er) {
   return ok
 }
 
+function crash (er, log) {
+  if (log && typeof log.fatal === 'function') log.fatal(er)
+  process.nextTick(() => { throw er })
+}
+
 function errorHandler (er) {
-  var log = this.log
   if (ok(er)) {
-    log.warn(er.message)
+    this.log.warn(er.message)
   } else {
-    var failure = 'fatal error'
-    var reason = er.message
-    var error = new Error([failure, reason].join([': ']))
-    log.error(error)
-    process.nextTick(function () {
-      throw error
+    const failure = 'fatal error'
+    const reason = er.message
+    const error = new Error(`${failure}: ${reason}`)
+    crash(error, this.log)
+  }
+}
+
+function root (opts, cb) {
+  cb(null, 200, JSON.stringify({
+    name: 'fanboy',
+    version: version()
+  }))
+}
+
+function pipe (s, q, opts, cb) {
+  const t = time()
+
+  let buf = ''
+
+  function ondata (chunk) {
+    buf += chunk
+  }
+
+  let er = null
+
+  function done () {
+    s.removeListener('data', ondata)
+    s.removeListener('end', done)
+    s.removeListener('error', onerror)
+    cb(er, 200, buf, t)
+  }
+  function onerror (error) {
+    // TODO: Review error handling
+    // If we end after the first error, errors should be errors, not info.
+    // If we don’t end after an error, we cannot rely if the stream ends,
+    // and have to add a timeout.
+    er = error
+  }
+
+  s.on('data', ondata)
+  s.on('error', onerror)
+  s.once('end', done)
+
+  if (q instanceof Array) {
+    const queries = q
+    let logged = false
+    queries.forEach((q) => {
+      if (!s.write(q) && !logged) {
+        opts.log.warn(q, 'ignoring back pressure')
+        logged = true
+      }
     })
+    s.end()
+  } else {
+    s.end(q)
   }
+  return s
 }
 
-function StaticHandler (payload) {
-  Readable.call(this)
-  this.push(payload)
-  this.push(null)
+function lookup (opts, cb) {
+  const s = opts.fanboy.lookup()
+  const q = decodeURI(opts.params.query).split(',')
+  return pipe(s, q, opts, cb)
 }
 
-util.inherits(StaticHandler, Readable)
+function trim (query) {
+  if (typeof query !== 'string') return null
+  if (query === '' || query === ' ') return null
+  const q = query.replace(/\s\s+/g, ' ')
+  if (q === ' ') return null
+  return q.trim()
+}
 
-function root (state, ctx, params) {
-  if (!root.payload) {
-    root.payload = JSON.stringify({
-      name: 'fanboy',
-      version: state.version
-    })
+function search (opts, cb) {
+  const query = opts.url.query
+  const q = trim(query.q)
+  if (!q) {
+    opts.log.warn('invalid query')
+    return cb(null, 200, '[]\r\n')
   }
-  return new StaticHandler(root.payload)
+  const s = opts.fanboy.search()
+  return pipe(s, q, opts, cb)
 }
 
-function StreamHandler (context, queries, source) {
-  Readable.call(this)
-  this.context = context
-  this.queries = queries
-  this.source = source
-
-  var me = this
-
-  function onerror (er) {
-    me.emit('error', er)
+function suggest (opts, cb) {
+  const query = opts.url.query
+  const q = trim(query.q)
+  if (!q) {
+    opts.log.warn('invalid query')
+    return cb(null, 200, '[]\r\n')
   }
-  var ok = true
-  function read () {
-    var chunk
-    while (ok && (chunk = source.read()) !== null) {
-      ok = me.push(chunk)
-    }
-    var more = chunk !== null
-    if (!ok && more) {
-      me.once('drain', function () {
-        ok = true
-        read()
-      })
-    }
-  }
-  function onend () {
-    source.removeListener('end', onend)
-    source.removeListener('error', onerror)
-    source.removeListener('readable', read)
-
-    me.context = null
-    me.queries = null
-    me.source = null
-
-    me.push(null)
-  }
-  source.on('end', onend)
-  source.on('error', onerror)
-  source.on('readable', read)
-}
-
-util.inherits(StreamHandler, Readable)
-
-StreamHandler.prototype._read = function (size) {
-  var source = this.source
-  var queries = this.queries
-
-  if (source._writableState.ended) { return }
-  if (this.context.closed) {
-    return source.end()
-  }
-  function write () {
-    var ok = !source._readableState.needDrain
-    var query
-    while (ok && (query = queries.shift()) !== undefined) {
-      ok = source.write(query)
-    }
-    var more = queries.length > 0
-    if (!ok && more) {
-      source.once('drain', write)
-    } else {
-      source.end()
-    }
-  }
-  write()
-}
-
-function lookup (state, ctx, params) {
-  // Burke buffering to allow compartmentalized aborting.
-  var opts = { highWaterMark: 0 }
-  var s = state.fanboy.lookup(opts)
-  var queries = decodeURI(params.query).split(',')
-  return new StreamHandler(ctx, queries, s)
-}
-
-function search (state, ctx, params) {
-  var s = state.fanboy.search()
-  var queries = [decodeURI(params.query)]
-  return new StreamHandler(ctx, queries, s)
-}
-
-function suggest (state, ctx, params) {
-  var s = state.fanboy.suggest()
-  var queries = [decodeURI(params.query)]
-  return new StreamHandler(ctx, queries, s)
-}
-
-function router () {
-  var router = httphash()
-  router.set('/', root)
-  router.set('/lookup/:query/', lookup)
-  router.set('/search/:query/', search)
-  router.set('/suggest/:query/', suggest)
-  return router
-}
-
-function version () {
-  var p = path.join(__dirname, 'package.json')
-  var data = fs.readFileSync(p)
-  var pkg = JSON.parse(data)
-  return pkg.version
+  const limit = parseInt(query.limit, 10) || -1
+  const s = opts.fanboy.suggest(limit)
+  return pipe(s, q, opts, cb)
 }
 
 function defaults (opts) {
@@ -261,58 +248,67 @@ function FanboyService (opts) {
   if (!(this instanceof FanboyService)) return new FanboyService(opts)
 
   opts = defaults(opts)
-  util._extend(this, opts)
+  Object.assign(this, opts)
 
-  this.router = router()
-  this.version = version()
+  this.hash = HttpHash()
 
   this.fanboy = null
-  this.repl = null
   this.server = null
 
   mkdirp.sync(this.location)
 }
 
-function Context (closed) {
-  this.closed = closed
+function ReqOpts (fanboy, log, params, splat, Url) {
+  this.fanboy = fanboy
+  this.log = log
+  this.params = params
+  this.splat = splat
+  this.url = Url
 }
 
-function freshPayloads () {
-  return [
-    {
-      statusCode: 404,
-      error: 'not found',
-      reason: 'not an endpoint'
-    },
-    {
-      statusCode: 500,
-      error: 'not ok',
-      reason: 'who knows'
-    }
-  ].reduce(function (acc, p) {
-    var code = p.statusCode
-    var o = {
-      error: p.error,
-      reason: p.reason
-    }
-    acc[code] = JSON.stringify(o)
-    return acc
-  }, Object.create(null))
+FanboyService.prototype.handleRequest = function (req, cb) {
+  if (typeof cb !== 'function') {
+    throw new Error('callback required to handle request')
+  }
+
+  const Url = url.parse(req.url, true)
+
+  const route = this.hash.get(Url.pathname)
+  if (route.handler === null) {
+    const er = new Error('not found')
+    er.statusCode = 404
+    return cb ? cb(er) : null
+  }
+
+  const opts = new ReqOpts(
+    this.fanboy,
+    this.log,
+    route.params,
+    route.splat,
+    Url
+  )
+
+  return route.handler(opts, cb)
 }
 
-function freshState (t) {
-  return Object.defineProperties(Object.create(null), {
-    'fanboy': { value: t.fanboy },
-    'log': { value: t.log },
-    'version': { value: t.version }
-  })
+FanboyService.prototype.setRoutes = function () {
+  const set = (name, handler) => {
+    if (handler && typeof handler === 'object') {
+      handler = httpMethods(handler)
+    }
+    this.hash.set(name, handler)
+  }
+  set('/', root)
+  set('/lookup/:query/', lookup)
+  set('/search', search)
+  set('/suggest', suggest)
 }
 
 FanboyService.prototype.start = function (cb = nop) {
   const log = this.log
 
   const info = {
-    version: this.version,
+    version: version(),
     location: this.location,
     cacheSize: this.cacheSize
   }
@@ -327,88 +323,78 @@ FanboyService.prototype.start = function (cb = nop) {
 
   this.errorHandler = errorHandler.bind(this)
   cache.on('error', this.errorHandler)
+
   this.fanboy = cache
 
-  // Setting up context for the request handler
-
-  var router = this.router
-  var payloads = freshPayloads()
-  var state = freshState(this)
+  this.setRoutes()
 
   const onrequest = (req, res) => {
-    var ts = time()
-    log.info({ method: req.method, url: req.url }, 'request')
+    log.debug({ method: req.method, url: req.url }, 'request')
 
-    var ctx = new Context(false)
-    function onclose () {
-      ctx.closed = true
-    }
-    req.on('close', onclose)
-    res.on('close', onclose)
-
-    function terminate (er, statusCode, payload) {
-      if (ctx.closed) {
-        er = new Error('underlying connection closed')
-      }
+    function terminate (er, statusCode, payload, time) {
       if (er) {
-        log.warn({ url: req.url }, er.message)
-        statusCode = statusCode || 500
-        payload = payload || payloads[statusCode] || payloads[500]
+        const payloads = {
+          404: () => {
+            log.warn({ method: req.method, url: req.url }, 'no route')
+            const reason = req.url + ' is no route'
+            statusCode = 404
+            payload = JSON.stringify({
+              error: 'not found',
+              reason: reason
+            })
+          },
+          405: () => {
+            log.warn({ method: req.method, url: req.url }, 'not allowed')
+            const reason = req.method + ' ' + req.url + ' is undefined'
+            statusCode = 405
+            payload = JSON.stringify({
+              error: 'method not allowed',
+              reason: reason
+            })
+          }
+        }
+        if (er.statusCode in payloads) {
+          payloads[er.statusCode]()
+        } else if (ok(er)) {
+          if (!payload) {
+            return crash(er, log)
+          }
+          log.warn(er)
+        } else {
+          return crash(er, log)
+        }
       }
-
-      if (ctx.closed) {
-        res.end()
-      } else {
-        respond(req, res, statusCode, payload, ts)
-      }
-
-      req.removeListener('close', onclose)
-      res.removeListener('close', onclose)
+      respond(req, res, statusCode, payload, time, log)
     }
 
-    var route = router.get(req.url)
-    var handler = route.handler
-    if (!handler) {
-      return terminate(new Error('not found'), 404)
-    }
-
-    var params = route.params
-    var s = handler(state, ctx, params)
-
-    const onerror = (er) => {
-      errorHandler.call(this, er)
-    }
-    var payload = ''
-    function onreadable () {
-      var chunk
-      while ((chunk = s.read()) !== null) {
-        payload += chunk
-      }
-    }
-    function onend () {
-      s.removeListener('end', onend)
-      s.removeListener('readable', onreadable)
-      s.removeListener('error', onerror)
-
-      terminate(null, 200, payload)
-    }
-    s.on('end', onend)
-    s.on('error', onerror)
-    s.on('readable', onreadable)
+    this.handleRequest(req, terminate)
   }
 
-  var port = this.port
-  var server = http.createServer(onrequest)
+  const server = http.createServer(onrequest)
+  const port = this.port
 
-  server.on('clientError', function (exc, sock) {
-    log.warn({ exc: exc, sock: sock }, 'client error')
-  })
-
-  server.listen(port, function (er) {
-    var info = { port: port, maxSockets: http.globalAgent.maxSockets }
+  server.listen(port, (er) => {
+    const info = {
+      port: port,
+      sockets: http.globalAgent.maxSockets
+    }
     log.info(info, 'listen')
     cb(er)
   })
+
+  server.on('clientError', (er, socket) => {
+    //
+    // Logging in the 'close' callback, because I've seen the call stack being
+    // exceeded in bunyan.js, in line 958 at this moment, suggesting a race
+    // condition in the error handler. To circumvent this, we also check if the
+    // socket has been destroyed already, before we try to close it.
+    //
+    socket.once('close', () => { log.warn(er) })
+    if (!socket.destroyed) {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n')
+    }
+  })
+
   this.server = server
 }
 
@@ -425,12 +411,11 @@ if (TEST) {
   }
   exports.FanboyService = FanboyService
   exports.defaults = defaults
-  exports.freshPayloads = freshPayloads
   exports.lookup = lookup
   exports.nop = nop
   exports.root = root
-  exports.router = router
   exports.search = search
   exports.suggest = suggest
+  exports.trim = trim
   exports.version = version
 }

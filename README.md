@@ -30,21 +30,26 @@ HTTP/1.1 200 OK
 Cache-Control: max-age=86400
 Content-Type: application/json; charset=utf-8
 Content-Length: 5990
+Fanboy-Version: 2.1.0
 Latency: 10454574
 Content-Encoding: gzip
 Date: Sun, 22 Nov 2015 07:07:10 GMT
 Connection: keep-alive
 ```
 
+Where 'Latency' is only provided, if the log level is below `WARN` (40)—debugging mode.
+
 ### Cached queries against the store API
 
 #### Searching for feed feeds
 
 ```
-GET /search/:query
+GET /search
 ```
 
-- `:query` The url-encoded search query.
+### Parameters
+
+- `q` `String()` The search query.
 
 The response is an `Array()` matching `feed()` objects or an empty `Array()` if no matches were found.
 
@@ -54,19 +59,22 @@ The response is an `Array()` matching `feed()` objects or an empty `Array()` if 
 GET /lookup/:query
 ```
 
-- `:query` An url-encoded list of guids separated by commas.
+- `:query` An url-encoded list of GUIDs separated by commas.
 
-Responds like `/search`.
+Lookup has the same response as `GET /search`.
 
 ### Additional endpoints
 
 #### Getting search term suggestions
 
 ```
-GET /suggest/:query
+GET /suggest
 ```
 
-- `:query` Here the query is an alphanumeric search term fragment.
+### Parameters
+
+- `q` `String()` Here the query is an alphanumeric search term fragment.
+- `max` `Number()` The maximum number of suggestions to get.
 
 This query responds with an `Array()` of search terms—of type `String()`—already in the cache and matching the query.
 
