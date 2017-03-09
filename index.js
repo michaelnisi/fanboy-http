@@ -111,12 +111,11 @@ function respond (req, res, statusCode, payload, time, log) {
   res.on('finish', onfinish)
 }
 
-// TODO: Whitelist 'falling back on cache: ENOTFOUND'
-
 const whitelist = RegExp([
-  'fanboy: unexpected response 400',
+  'fanboy: falling back on cache',
+  'fanboy: falling back on cache: ENOTFOUND',
   'fanboy: guid',
-  'fanboy: falling back on cache'
+  'fanboy: unexpected response 400'
 ].join('|'), 'i')
 
 // Assess error by its message returning `true`, if it’s OK to continue.
@@ -167,14 +166,12 @@ function pipe (s, q, opts, cb) {
     s.removeListener('data', ondata)
     s.removeListener('end', done)
     s.removeListener('error', onerror)
-    cb(er, 200, buf, t)
+    if (buf === '') buf = null
+    if (cb) cb(er, 200, buf, t)
   }
   function onerror (error) {
-    // TODO: Review error handling
-    // If we end after the first error, errors should be errors, not info.
-    // If we don’t end after an error, we cannot rely if the stream ends,
-    // and have to add a timeout.
     er = error
+    if (!ok(er)) done()
   }
 
   s.on('data', ondata)
@@ -203,12 +200,14 @@ function lookup (opts, cb) {
   return pipe(s, q, opts, cb)
 }
 
-function trim (query) {
-  if (typeof query !== 'string') return null
-  if (query === '' || query === ' ') return null
-  const q = query.replace(/\s\s+/g, ' ')
+// Returns validated and trimmed query. If `str` is a valid query a trimmed
+// lower case copy without any whitespace is returned, else `null` is returned.
+function trim (str) {
+  if (typeof str !== 'string') return null
+  if (str === '' || str === ' ') return null
+  const q = str.replace(/\s\s+/g, ' ')
   if (q === ' ') return null
-  return q.trim()
+  return q.trim().toLowerCase()
 }
 
 function search (opts, cb) {
@@ -304,7 +303,7 @@ FanboyService.prototype.setRoutes = function () {
   set('/suggest', suggest)
 }
 
-FanboyService.prototype.start = function (cb = nop) {
+FanboyService.prototype.start = function (cb) {
   const log = this.log
 
   const info = {
@@ -379,7 +378,7 @@ FanboyService.prototype.start = function (cb = nop) {
       sockets: http.globalAgent.maxSockets
     }
     log.info(info, 'listen')
-    cb(er)
+    if (cb) cb(er)
   })
 
   server.on('clientError', (er, socket) => {
@@ -401,11 +400,11 @@ FanboyService.prototype.start = function (cb = nop) {
 const TEST = process.mainModule.filename.match(/test/) !== null
 
 if (TEST) {
-  FanboyService.prototype.stop = function (cb = nop) {
+  FanboyService.prototype.stop = function (cb) {
     this.server.close((er) => {
       this.fanboy.close((er) => {
         this.fanboy.removeAllListeners()
-        cb(er)
+        if (cb) cb(er)
       })
     })
   }
