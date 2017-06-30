@@ -1,6 +1,6 @@
 {
   "name": "fanboy-http",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "fanboy HTTP API",
   "main": "index.js",
   "directories": {
@@ -33,6 +33,7 @@
     "bunyan": "^1.8.5",
     "fanboy": "^5.0.3",
     "http-hash": "^2.0.0",
+    "http-methods": "^1.1.0",
     "mkdirp": "^0.5.1",
     "negotiator": "^0.6.1"
   },
