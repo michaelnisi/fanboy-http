@@ -10,8 +10,7 @@
     "pretest": "standard",
     "test": "tap test/*.js",
     "posttest": "rm -rf /tmp/fanboy-http-[1-9]*",
-    "start": "node start.js > /dev/null & echo $! > .pid",
-    "stop": "kill $(cat .pid)"
+    "start": "FANBOY_LOG_LEVEL=30 node start.js | node_modules/bunyan/bin/bunyan -o short"
   },
   "repository": {
     "type": "git",
