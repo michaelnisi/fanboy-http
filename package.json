@@ -38,10 +38,10 @@
   },
   "devDependencies": {
     "lino": "^1.0.0",
-    "nock": "^9.0.7",
+    "nock": "^9.1.4",
     "rimraf": "^2.6.1",
-    "standard": "^8.6.0",
-    "tap": "^10.2.2"
+    "standard": "^10.0.3",
+    "tap": "^11.0.0"
   },
   "license": "MIT"
 }

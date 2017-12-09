@@ -8,4 +8,3 @@ test('trim', (t) => {
   t.is(trim(' abc  def'), 'abc def')
   t.end()
 })
-
