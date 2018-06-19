@@ -4,13 +4,7 @@ SMF_ROOT=/var/svc/manifest/site
 SVC_ROOT=/opt/podest/fanboy
 
 check() {
-  local isOnline=$( svcs fanboy | grep -ic "online" )
-  if [ $isOnline -eq 1 ]
-  then
-    echo "aborting: fanboy seems to be online"
-    echo 1
-  fi
-  echo 0
+  return $( svcs fanboy | grep -ic "online" )
 }
 
 copy() {
@@ -31,7 +25,7 @@ import_manifest() {
 }
 
 smartos() {
-  check
+  check || exit 1
   copy
   import_manifest
 }
