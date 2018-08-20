@@ -1,6 +1,6 @@
 {
   "name": "fanboy-http",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "description": "fanboy HTTP API",
   "main": "index.js",
   "directories": {
@@ -27,7 +27,7 @@
   "engines": {
     "node": ">=6"
   },
-  "author": "Michael Nisi <michael.nisi@gmail.com> (http://michaelnisi.com/)",
+  "author": "Michael Nisi <michael.nisi@gmail.com> (http://troubled.pro)",
   "dependencies": {
     "bunyan": "^1.8.5",
     "fanboy": "^5.0.3",
