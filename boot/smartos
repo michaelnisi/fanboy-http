@@ -18,7 +18,7 @@ copy() {
 }
 
 populate() {
-  local in="${DIR}/fanboy.xml.in"
+  local in="${DIR}/../smf/manfifests/fanboy.xml.in"
   local out="${DIR}/../smf/manifests/fanboy.xml"
   sed \
     -e "s;@@PORT@@;$PORT;g" \
