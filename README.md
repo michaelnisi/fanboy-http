@@ -1,4 +1,4 @@
-# fanboy-http - search iTunes for feeds
+# fanboy-http - fanboy HTTP API
 
 **fanboy-http** is an HTTP/1.1 API for cached searching and looking up of feeds in the iTunes store.
 
