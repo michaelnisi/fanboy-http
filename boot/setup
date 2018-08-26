@@ -9,6 +9,9 @@ fi
 
 DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
+# Takes first argument as port, defaulting to 80.
+PORT=${1-80}
+
 main() {
   local name=$(uname -s)
   case $name in

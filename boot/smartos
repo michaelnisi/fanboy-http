@@ -17,6 +17,14 @@ copy() {
   cp -rf "${DIR}/../node_modules" $SVC_ROOT
 }
 
+populate() {
+  local in="${DIR}/fanboy.xml.in"
+  local out="${DIR}/../smf/manifests/fanboy.xml"
+  sed \
+    -e "s;@@PORT@@;$PORT;g" \
+    $in > $out
+}
+
 import_manifest() {
   local manifest="${DIR}/../smf/manifests/fanboy.xml"
   cp "$manifest" "$SMF_ROOT"
@@ -27,5 +35,6 @@ import_manifest() {
 smartos() {
   check || exit 1
   copy
+  populate
   import_manifest
 }
