@@ -1,7 +1,7 @@
 {
   "name": "fanboy-http",
   "version": "4.0.0",
-  "description": "fanboy HTTP API",
+  "description": "search iTunes for podcast feeds",
   "main": "index.js",
   "directories": {
     "test": "test"
