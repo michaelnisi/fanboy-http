@@ -1,6 +1,6 @@
 # fanboy-http - search iTunes for podcast feeds
 
-**fanboy-http** is an HTTP/1.1 API for cached searching and looking up of feeds in the iTunes store.
+**fanboy-http** is an HTTP/1.1 API for cached searching and looking up of podcast feeds in the iTunes store.
 
 ## Types
 
