@@ -87,6 +87,16 @@ Response
 - `name` The name of the server
 - `version` The version of the API (the package version)
 
+## Installation
+
+After installing our dependencies with [npm](https://www.npmjs.com), we can setup.
+
+`npm install`
+
+On [SmartOS](https://www.joyent.com/smartos), setup installs our service with [SMF](https://docs.joyent.com/public-cloud/instances/infrastructure/images/smartos/managing-smartos/using-smf/basic-smf-commands).
+
+`./boot/setup`
+
 ## License
 
 [MIT License](https://github.com/michaelnisi/fanboy-http/blob/master/LICENSE)
