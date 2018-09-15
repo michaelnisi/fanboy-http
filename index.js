@@ -19,8 +19,10 @@ const zlib = require('zlib')
 
 function nop () {}
 
-// Measure time for log levels below ERROR (50).
-const debugging = parseInt(process.env.FANBOY_LOG_LEVEL, 10) < 50
+// Measure time for log levels below INFO, which would be 30 in bunyan.
+// Recommended level for general development is INFO (30), production
+// is suited by WARN (40) or better ERROR (50).
+const debugging = parseInt(process.env.FANBOY_LOG_LEVEL, 10) < 30
 const time = debugging ? process.hrtime : nop
 const ns = (() => {
   return debugging ? (t) => {
