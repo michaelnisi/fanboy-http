@@ -59,6 +59,8 @@
       exec=":kill"
       timeout_seconds="30" />
 
+    <property_group name="application" type="application" />
+
     <template>
       <common_name>
         <loctext xml:lang="Node">Podest Podcast Search Service</loctext>
