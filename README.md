@@ -29,11 +29,11 @@ Here, a representative response header of this API:
 HTTP/1.1 200 OK
 Cache-Control: max-age=86400
 Content-Type: application/json; charset=utf-8
-Content-Length: 5990
-Fanboy-Version: 2.1.0
-Latency: 10454574
+Fanboy-Version: 4.0.0
 Content-Encoding: gzip
-Date: Sun, 22 Nov 2015 07:07:10 GMT
+Content-Length: 5332
+Accept-Ranges: bytes
+Date: Thu, 21 Feb 2019 10:35:08 GMT
 Connection: keep-alive
 ```
 
