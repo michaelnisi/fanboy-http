@@ -3,9 +3,9 @@
 const common = require('./lib/common')
 const fs = require('fs')
 const http = require('http')
-const lino = require('lino')
 const path = require('path')
 const rimraf = require('rimraf')
+const split = require('binary-split')
 const test = require('tap').test
 
 test('abort request', (t) => {
@@ -85,12 +85,12 @@ test('destroy socket', (t) => {
 test('aborted lookup of multiple guids', (t) => {
   const p = path.resolve(__dirname, 'data', 'GUIDS')
   const file = fs.createReadStream(p)
-  const lines = lino({ encoding: 'utf8' })
+  const lines = split()
   file.pipe(lines)
 
   const guids = []
-  lines.on('data', (str) => {
-    guids.push(str.trim())
+  lines.on('data', (chunk) => {
+    guids.push(chunk)
   })
   lines.on('end', () => {
     t.ok(guids.length)
