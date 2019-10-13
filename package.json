@@ -30,7 +30,7 @@
   "author": "Michael Nisi <michael.nisi@gmail.com> (http://troubled.pro)",
   "dependencies": {
     "bunyan": "^1.8.5",
-    "fanboy": "^5.0.3",
+    "fanboy": "7.0.1",
     "http-hash": "^2.0.0",
     "http-methods": "^1.1.0",
     "mkdirp": "^0.5.1",

@@ -7,7 +7,6 @@ module.exports = exports = FanboyService
 const HttpHash = require('http-hash')
 const Negotiator = require('negotiator')
 const assert = require('assert')
-const fanboy = require('fanboy')
 const fs = require('fs')
 const http = require('http')
 const httpMethods = require('http-methods/method')
@@ -16,6 +15,7 @@ const path = require('path')
 const podcast = require('./lib/podcast')
 const url = require('url')
 const zlib = require('zlib')
+const { createLevelDB, Fanboy } = require('fanboy')
 
 function nop () {}
 
