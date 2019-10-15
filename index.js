@@ -16,6 +16,7 @@ const podcast = require('./lib/podcast')
 const url = require('url')
 const zlib = require('zlib')
 const { createLevelDB, Fanboy } = require('fanboy')
+const { Readable, Writable, pipeline } = require('readable-stream')
 
 function nop () {}
 
@@ -70,15 +71,17 @@ function latency (t, log) {
   return lat
 }
 
-// A general responder for buffered payloads that applies gzip compression
-// if requested.
-//
-// - req IncomingMessage The request.
-// - res ServerResponse The response.
-// - statusCode Number The HTTP status code.
-// - payload Buffer | String The JSON payload.
-// - time Array | void The hi-res real time tuple of when the request hit.
-// - log The logger to use.
+/**
+ * A general responder for buffered payloads that applies gzip compressio 
+ * if requested.
+ * 
+ * @param req IncomingMessage The request.
+ * @param res ServerResponse The response.
+ * @param statusCode Number The HTTP status code.
+ * @param payload Buffer | String The JSON payload.
+ * @param time Array | void The hi-res real time tuple of when the request hit.
+ * @param log The logger to use.
+ */
 function respond (req, res, statusCode, payload, time, log) {
   assert(!res.finished, 'cannot respond more than once')
 
@@ -147,68 +150,51 @@ function errorHandler (er) {
 }
 
 function root (opts, cb) {
-  cb(null, 200, JSON.stringify({
-    name: 'fanboy',
-    version: version()
-  }))
-}
-
-function pipe (s, q, opts, cb) {
-  const t = time()
-
-  let buf = ''
-
-  function ondata (chunk) {
-    buf += chunk
-  }
-
-  let er = null
-
-  function done () {
-    s.removeListener('data', ondata)
-    s.removeListener('end', done)
-    s.removeListener('error', onerror)
-    if (buf === '') buf = null
-    if (cb) cb(er, 200, buf, t)
-  }
-  function onerror (error) {
-    er = error
-    if (!ok(er)) done()
-  }
-
-  s.on('data', ondata)
-  s.on('error', onerror)
-  s.once('end', done)
-
-  if (q instanceof Array) {
-    const queries = q
-    let logged = false
-    queries.forEach((q) => {
-      if (!s.write(q) && !logged) {
-        opts.log.warn(q, 'ignoring back pressure')
-        logged = true
-      }
-    })
-    s.end()
-  } else {
-    s.end(q)
-  }
-  return s
+  cb(null, 200, { name: 'fanboy', version: version() })
 }
 
 function lookup (opts, cb) {
-  const s = opts.fanboy.lookup()
-  const q = decodeURI(opts.params.query).split(',')
-  return pipe(s, q, opts, cb)
+  const t = time()
+
+  const { fanboy, params: { query } } = opts
+  let queries = decodeURI(query).split(',')
+
+  let acc = []
+
+  pipeline(
+    new Readable({
+      read(_size) {
+        const next = queries.pop()
+        const guid = typeof next === 'string' ? next : null
+
+        this.push(guid)
+      }, 
+    }),
+    new Writable({
+      write(chunk, _enc, cb) {
+        const guid = chunk.toString()
+        
+        fanboy.lookup(guid, (error, item) => {
+          acc.push(podcast(item))
+          cb(error)
+        })
+      }
+    }),
+    error => {
+      cb(error, 200, acc, t)
+    }
+  )
 }
 
-// Returns validated and trimmed query. If `str` is a valid query a trimmed
-// lower case copy without any whitespace is returned, else `null` is returned.
-function trim (str) {
+/**
+ * Returns a valid and trimmed (lowercase without whitespace) query `String` or `null`.
+ */
+ function trim (str) {
   if (typeof str !== 'string') return null
   if (str === '' || str === ' ') return null
   const q = str.replace(/\s\s+/g, ' ')
   if (q === ' ') return null
+
   return q.trim().toLowerCase()
 }
 
@@ -313,20 +299,17 @@ FanboyService.prototype.start = function (cb) {
     location: this.location,
     cacheSize: this.cacheSize
   }
-  log.info(info, 'start')
+  log.info(info, 'starting')
 
-  const cache = fanboy(this.location, {
+  const db = createLevelDB(this.location)
+  const cache = new Fanboy(db, {
     cacheSize: this.cacheSize,
     media: 'podcast',
-    result: podcast,
     ttl: this.ttl
   })
 
   this.errorHandler = errorHandler.bind(this)
-  cache.on('error', this.errorHandler)
-
   this.fanboy = cache
-
   this.setRoutes()
 
   const onrequest = (req, res) => {
@@ -365,7 +348,7 @@ FanboyService.prototype.start = function (cb) {
           return crash(er, log)
         }
       }
-      respond(req, res, statusCode, payload, time, log)
+      respond(req, res, statusCode, JSON.stringify(payload), time, log)
     }
 
     this.handleRequest(req, terminate)
