@@ -153,12 +153,9 @@ function root (opts, cb) {
   cb(null, 200, { name: 'fanboy', version: version() })
 }
 
-function lookup (opts, cb) {
+function lookup ({ fanboy, params: { query } }, cb) {
   const t = time()
-
-  const { fanboy, params: { query } } = opts
   let queries = decodeURI(query).split(',')
-
   let acc = []
 
   pipeline(
@@ -198,10 +195,8 @@ function lookup (opts, cb) {
   return q.trim().toLowerCase()
 }
 
-function search (opts, cb) {
+function search ({ fanboy, url: { query } } , cb) {
   const t = time()
-
-  const { fanboy, url: { query } } = opts
   const q = trim(query.q)
 
   if (!q) {
@@ -214,10 +209,8 @@ function search (opts, cb) {
   })
 }
 
-function suggest (opts, cb) {
+function suggest ({ fanboy, url: { query }, url: { query: { limit } } }, cb) {
   const t = time()
-
-  const { fanboy, url: { query }, limit: { query: { limit } }} = opts
   const q = trim(query.q)
 
   if (!q) {
@@ -227,9 +220,7 @@ function suggest (opts, cb) {
 
   const l = parseInt(limit, 10) || -1
 
-  // TODO: Limit requires fix in fanboy to work
-
-  fanboy.suggest(q, (error, terms) => {
+  fanboy.suggest(q, l, (error, terms) => {
     cb(error, 200, terms, t)
   })
 }
