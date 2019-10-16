@@ -199,26 +199,39 @@ function lookup (opts, cb) {
 }
 
 function search (opts, cb) {
-  const query = opts.url.query
+  const t = time()
+
+  const { fanboy, url: { query } } = opts
   const q = trim(query.q)
+
   if (!q) {
     opts.log.warn('invalid query')
     return cb(null, 200, '[]\r\n')
   }
-  const s = opts.fanboy.search()
-  return pipe(s, q, opts, cb)
+
+  fanboy.search(q, (error, items) => {
+    cb(error, 200, items.map(item => podcast(item)), t)
+  })
 }
 
 function suggest (opts, cb) {
-  const query = opts.url.query
+  const t = time()
+
+  const { fanboy, url: { query }, limit: { query: { limit } }} = opts
   const q = trim(query.q)
+
   if (!q) {
     opts.log.warn('invalid query')
     return cb(null, 200, '[]\r\n')
   }
-  const limit = parseInt(query.limit, 10) || -1
-  const s = opts.fanboy.suggest(limit)
-  return pipe(s, q, opts, cb)
+
+  const l = parseInt(limit, 10) || -1
+
+  // TODO: Limit requires fix in fanboy to work
+
+  fanboy.suggest(q, (error, terms) => {
+    cb(error, 200, terms, t)
+  })
 }
 
 function defaults (opts) {
