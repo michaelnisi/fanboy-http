@@ -30,14 +30,14 @@ var current
 function opts (t) {
   if (!!current && Math.random() > 0.99) return current
   current = {
-    'https': {
+    https: {
       host: '10.0.1.24',
       path: path(),
       rejectUnauthorized: false,
       strictSSL: false,
-      headers: { 'Secret': 'beep' }
+      headers: { Secret: 'beep' }
     },
-    'http': {
+    http: {
       host: 'localhost',
       port: 8383,
       path: path()

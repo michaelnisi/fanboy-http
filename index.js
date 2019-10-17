@@ -13,7 +13,7 @@ const httpMethods = require('http-methods/method')
 const mkdirp = require('mkdirp')
 const path = require('path')
 const podcast = require('./lib/podcast')
-const url = require('url')
+const parse = require('url-parse')
 const zlib = require('zlib')
 const { createLevelDB, Fanboy } = require('fanboy')
 const { Readable, Writable, pipeline } = require('readable-stream')
@@ -49,7 +49,7 @@ function headers (len, lat, enc) {
     'Fanboy-Version': version()
   }
   if (lat) {
-    headers['Latency'] = lat
+    headers.Latency = lat
   }
   if (enc) {
     headers['Content-Encoding'] = enc
@@ -72,9 +72,9 @@ function latency (t, log) {
 }
 
 /**
- * A general responder for buffered payloads that applies gzip compressio 
+ * A general responder for buffered payloads that applies gzip compressio
  * if requested.
- * 
+ *
  * @param req IncomingMessage The request.
  * @param res ServerResponse The response.
  * @param statusCode Number The HTTP status code.
@@ -96,13 +96,13 @@ function respond (req, res, statusCode, payload, time, log) {
   }
 
   const gz = getGz(req)
-  
+
   function lat () {
     if (time instanceof Array) {
       return latency(time, log)
     }
   }
-  
+
   if (gz) {
     zlib.gzip(payload, (er, zipped) => {
       if (!res) return
@@ -149,22 +149,22 @@ function root (_opts, cb) {
 }
 
 function lookup ({ fanboy, params: { query }, ts }, cb) {
-  let queries = decodeURI(query).split(',')
-  let acc = []
+  const queries = decodeURI(query).split(',')
+  const acc = []
 
   pipeline(
     new Readable({
-      read(_size) {
+      read (_size) {
         const next = queries.pop()
         const guid = typeof next === 'string' ? next : null
 
         this.push(guid)
-      }, 
+      }
     }),
     new Writable({
-      write(chunk, _enc, cb) {
+      write (chunk, _enc, cb) {
         const guid = chunk.toString()
-        
+
         fanboy.lookup(guid, (error, item) => {
           const found = podcast(item)
 
@@ -182,7 +182,7 @@ function lookup ({ fanboy, params: { query }, ts }, cb) {
 /**
  * Returns a valid and trimmed (lowercase without whitespace) query `String` or `null`.
  */
- function trim (str) {
+function trim (str) {
   if (typeof str !== 'string') return null
   if (str === '' || str === ' ') return null
   const q = str.replace(/\s\s+/g, ' ')
@@ -191,11 +191,11 @@ function lookup ({ fanboy, params: { query }, ts }, cb) {
   return q.trim().toLowerCase()
 }
 
-function search ({ fanboy, url: { query }, ts } , cb) {
+function search ({ fanboy, url: { query }, log, ts }, cb) {
   const q = trim(query.q)
 
   if (!q) {
-    opts.log.warn('invalid query')
+    log.warn('invalid query')
     return cb(null, 200, [], ts)
   }
 
@@ -204,11 +204,11 @@ function search ({ fanboy, url: { query }, ts } , cb) {
   })
 }
 
-function suggest ({ fanboy, url: { query }, url: { query: { limit } }, ts }, cb) {
+function suggest ({ fanboy, url: { query }, url: { query: { limit } }, log, ts }, cb) {
   const q = trim(query.q)
 
   if (!q) {
-    opts.log.warn('invalid query')
+    log.warn('invalid query')
     return cb(null, 200, [], ts)
   }
 
@@ -246,7 +246,7 @@ function FanboyService (opts) {
 
 /**
  * State passed around with each request.
- * 
+ *
  * @param fanboy The Fanboy cache instance.
  * @param log The log object.
  * @param params The request parameters.
@@ -268,7 +268,7 @@ FanboyService.prototype.handleRequest = function (req, cb) {
     throw new Error('callback required to handle request')
   }
 
-  const Url = url.parse(req.url, true)
+  const Url = parse(req.url, true)
 
   const route = this.hash.get(Url.pathname)
   if (route.handler === null) {
@@ -329,7 +329,7 @@ FanboyService.prototype.start = function (cb) {
       const failure = 'fatal error'
       const reason = er.message
       const error = new Error(`${failure}: ${reason}`)
-      
+
       crash(error, this.log)
     }
   }
