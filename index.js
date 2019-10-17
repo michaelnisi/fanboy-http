@@ -89,26 +89,32 @@ function respond (req, res, statusCode, payload, time, log) {
     res.removeListener('close', onclose)
     res.removeListener('finish', onfinish)
   }
+
   function onclose () {
     log.warn('connection terminated: ' + req.url)
     onfinish()
   }
+
   const gz = getGz(req)
+  
   function lat () {
     if (time instanceof Array) {
       return latency(time, log)
     }
   }
+  
   if (gz) {
     zlib.gzip(payload, (er, zipped) => {
       if (!res) return
       const h = headers(zipped.length, lat(), 'gzip')
+
       res.writeHead(statusCode, h)
       res.end(zipped)
     })
   } else {
     const len = Buffer.byteLength(payload, 'utf8')
     const h = headers(len, lat())
+
     res.writeHead(statusCode, h)
     res.end(payload)
   }
@@ -138,23 +144,11 @@ function crash (er, log) {
   process.nextTick(() => { throw er })
 }
 
-function errorHandler (er) {
-  if (ok(er)) {
-    this.log.warn(er.message)
-  } else {
-    const failure = 'fatal error'
-    const reason = er.message
-    const error = new Error(`${failure}: ${reason}`)
-    crash(error, this.log)
-  }
-}
-
-function root (opts, cb) {
+function root (_opts, cb) {
   cb(null, 200, { name: 'fanboy', version: version() })
 }
 
-function lookup ({ fanboy, params: { query } }, cb) {
-  const t = time()
+function lookup ({ fanboy, params: { query }, ts }, cb) {
   let queries = decodeURI(query).split(',')
   let acc = []
 
@@ -172,13 +166,15 @@ function lookup ({ fanboy, params: { query } }, cb) {
         const guid = chunk.toString()
         
         fanboy.lookup(guid, (error, item) => {
-          acc.push(podcast(item))
+          const found = podcast(item)
+
+          if (found) acc.push(found)
           cb(error)
         })
       }
     }),
     error => {
-      cb(error, 200, acc, t)
+      cb(error, 200, acc, ts)
     }
   )
 }
@@ -195,33 +191,31 @@ function lookup ({ fanboy, params: { query } }, cb) {
   return q.trim().toLowerCase()
 }
 
-function search ({ fanboy, url: { query } } , cb) {
-  const t = time()
+function search ({ fanboy, url: { query }, ts } , cb) {
   const q = trim(query.q)
 
   if (!q) {
     opts.log.warn('invalid query')
-    return cb(null, 200, '[]\r\n')
+    return cb(null, 200, [], ts)
   }
 
   fanboy.search(q, (error, items) => {
-    cb(error, 200, items.map(item => podcast(item)), t)
+    cb(error, 200, items.map(item => podcast(item)), ts)
   })
 }
 
-function suggest ({ fanboy, url: { query }, url: { query: { limit } } }, cb) {
-  const t = time()
+function suggest ({ fanboy, url: { query }, url: { query: { limit } }, ts }, cb) {
   const q = trim(query.q)
 
   if (!q) {
     opts.log.warn('invalid query')
-    return cb(null, 200, '[]\r\n')
+    return cb(null, 200, [], ts)
   }
 
   const l = parseInt(limit, 10) || -1
 
   fanboy.suggest(q, l, (error, terms) => {
-    cb(error, 200, terms, t)
+    cb(error, 200, terms, ts)
   })
 }
 
@@ -232,6 +226,7 @@ function defaults (opts) {
   opts.log = opts.log || { info: nop, warn: nop, debug: nop, error: nop }
   opts.ttl = opts.ttl || 24 * 3600 * 1000
   opts.cacheSize = opts.cacheSize || 16 * 1024 * 1024
+
   return opts
 }
 
@@ -249,12 +244,23 @@ function FanboyService (opts) {
   mkdirp.sync(this.location)
 }
 
-function ReqOpts (fanboy, log, params, splat, Url) {
+/**
+ * State passed around with each request.
+ * 
+ * @param fanboy The Fanboy cache instance.
+ * @param log The log object.
+ * @param params The request parameters.
+ * @param splat Some wildcard parameters of the request.
+ * @param URL The URL of this request.
+ * @param ts A timestamp for monitoring.
+ */
+function ReqOpts (fanboy, log, params, splat, Url, ts) {
   this.fanboy = fanboy
   this.log = log
   this.params = params
   this.splat = splat
   this.url = Url
+  this.ts = ts
 }
 
 FanboyService.prototype.handleRequest = function (req, cb) {
@@ -276,7 +282,8 @@ FanboyService.prototype.handleRequest = function (req, cb) {
     this.log,
     route.params,
     route.splat,
-    Url
+    Url,
+    time()
   )
 
   return route.handler(opts, cb)
@@ -312,15 +319,28 @@ FanboyService.prototype.start = function (cb) {
     ttl: this.ttl
   })
 
-  this.errorHandler = errorHandler.bind(this)
   this.fanboy = cache
   this.setRoutes()
+
+  const trap = er => {
+    if (ok(er)) {
+      log.warn(er.message)
+    } else {
+      const failure = 'fatal error'
+      const reason = er.message
+      const error = new Error(`${failure}: ${reason}`)
+      
+      crash(error, this.log)
+    }
+  }
 
   const onrequest = (req, res) => {
     log.debug({ method: req.method, url: req.url }, 'request')
 
     function terminate (er, statusCode, payload, time) {
       if (er) {
+        trap(er)
+
         const payloads = {
           404: () => {
             log.warn({ method: req.method, url: req.url }, 'no route')
@@ -397,6 +417,7 @@ if (TEST) {
       })
     })
   }
+
   exports.FanboyService = FanboyService
   exports.defaults = defaults
   exports.lookup = lookup
