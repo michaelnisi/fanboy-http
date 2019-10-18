@@ -15,6 +15,7 @@ const path = require('path')
 const podcast = require('./lib/podcast')
 const parse = require('url-parse')
 const zlib = require('zlib')
+const whitelist = require('./lib/whitelist')
 const { createLevelDB, Fanboy } = require('fanboy')
 const { Readable, Writable, pipeline } = require('readable-stream')
 
@@ -122,28 +123,6 @@ function respond (req, res, statusCode, payload, time, log) {
   res.on('finish', onfinish)
 }
 
-const whitelist = RegExp([
-  'fanboy: falling back on cache',
-  'fanboy: falling back on cache: ENOTFOUND',
-  'fanboy: guid',
-  'fanboy: unexpected response 400'
-].join('|'), 'i')
-
-// Assess error by its message returning `true`, if it’s OK to continue.
-function ok (er) {
-  let ok = false
-  if (er) {
-    const msg = er.message
-    if (msg) ok = msg.match(whitelist) !== null
-  }
-  return ok
-}
-
-function crash (er, log) {
-  if (log && typeof log.fatal === 'function') log.fatal(er)
-  process.nextTick(() => { throw er })
-}
-
 function root (_opts, cb) {
   cb(null, 200, { name: 'fanboy', version: version() })
 }
@@ -200,7 +179,13 @@ function search ({ fanboy, url: { query }, log, ts }, cb) {
   }
 
   fanboy.search(q, (error, items) => {
-    cb(error, 200, items.map(item => podcast(item)), ts)
+    cb(error, 200, items.reduce((acc, item) => {
+      const z = podcast(item)
+
+      if (z) acc.push(z)
+
+      return acc
+    }, []), ts)
   })
 }
 
@@ -302,6 +287,23 @@ FanboyService.prototype.setRoutes = function () {
   set('/suggest', suggest)
 }
 
+function crash (er, log) {
+  if (log && typeof log.fatal === 'function') log.fatal(er)
+  process.nextTick(() => { throw er })
+}
+
+// Assess error by its message returning `true`, if it’s OK to continue.
+function ok (er) {
+  let ok = false
+
+  if (er) {
+    const msg = er.message
+    if (msg) ok = msg.match(whitelist) !== null
+  }
+
+  return ok
+}
+
 FanboyService.prototype.start = function (cb) {
   const log = this.log
 
@@ -310,6 +312,7 @@ FanboyService.prototype.start = function (cb) {
     location: this.location,
     cacheSize: this.cacheSize
   }
+
   log.info(info, 'starting')
 
   const db = createLevelDB(this.location)
@@ -322,7 +325,7 @@ FanboyService.prototype.start = function (cb) {
   this.fanboy = cache
   this.setRoutes()
 
-  const trap = er => {
+  const assess = er => {
     if (ok(er)) {
       log.warn(er.message)
     } else {
@@ -339,11 +342,10 @@ FanboyService.prototype.start = function (cb) {
 
     function terminate (er, statusCode, payload, time) {
       if (er) {
-        trap(er)
-
         const payloads = {
           404: () => {
             log.warn({ method: req.method, url: req.url }, 'no route')
+
             const reason = req.url + ' is no route'
             statusCode = 404
             payload = JSON.stringify({
@@ -353,6 +355,7 @@ FanboyService.prototype.start = function (cb) {
           },
           405: () => {
             log.warn({ method: req.method, url: req.url }, 'not allowed')
+
             const reason = req.method + ' ' + req.url + ' is undefined'
             statusCode = 405
             payload = JSON.stringify({
@@ -361,17 +364,18 @@ FanboyService.prototype.start = function (cb) {
             })
           }
         }
+
         if (er.statusCode in payloads) {
           payloads[er.statusCode]()
-        } else if (ok(er)) {
-          if (!payload) {
-            return crash(er, log)
-          }
-          log.warn(er)
         } else {
-          return crash(er, log)
+          assess(er)
+        }
+
+        if (!payload) {
+          crash(new Error('payload must be truthy', log))
         }
       }
+
       respond(req, res, statusCode, JSON.stringify(payload), time, log)
     }
 
@@ -386,6 +390,7 @@ FanboyService.prototype.start = function (cb) {
       port: port,
       sockets: http.globalAgent.maxSockets
     }
+
     log.info(info, 'listen')
     if (cb) cb(er)
   })
@@ -404,27 +409,4 @@ FanboyService.prototype.start = function (cb) {
   })
 
   this.server = server
-}
-
-const TEST = process.mainModule.filename.match(/test/) !== null
-
-if (TEST) {
-  FanboyService.prototype.stop = function (cb) {
-    this.server.close((er) => {
-      this.fanboy.close((er) => {
-        this.fanboy.removeAllListeners()
-        if (cb) cb(er)
-      })
-    })
-  }
-
-  exports.FanboyService = FanboyService
-  exports.defaults = defaults
-  exports.lookup = lookup
-  exports.nop = nop
-  exports.root = root
-  exports.search = search
-  exports.suggest = suggest
-  exports.trim = trim
-  exports.version = version
 }

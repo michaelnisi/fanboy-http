@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "standard",
+    "test": "standard --fix",
     "start": "FANBOY_LOG_LEVEL=30 node start.js | node_modules/bunyan/bin/bunyan -o short"
   },
   "repository": {
