@@ -1,10 +1,19 @@
-FROM node:12.4
+FROM node:12.12-alpine
 
-ENV PORT 3000
+RUN apk add --update \
+    python \
+    python-dev \
+    py-pip \
+    build-base \
+  && pip install virtualenv \
+  && rm -rf /var/cache/apk/*
+
+ENV PORT 8080
 WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 COPY . .
-EXPOSE 3000
 
-CMD [ "npm", "start" ]
+EXPOSE 8080
+USER node
+CMD [ "node", "--abort-on-uncaught-exception", "start.js" ]
