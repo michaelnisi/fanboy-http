@@ -7,15 +7,17 @@ module.exports = exports = FanboyService
 const HttpHash = require('http-hash')
 const Negotiator = require('negotiator')
 const assert = require('assert')
-const fanboy = require('fanboy')
 const fs = require('fs')
 const http = require('http')
 const httpMethods = require('http-methods/method')
 const mkdirp = require('mkdirp')
 const path = require('path')
 const podcast = require('./lib/podcast')
-const url = require('url')
+const parse = require('url-parse')
 const zlib = require('zlib')
+const whitelist = require('./lib/whitelist')
+const { createLevelDB, Fanboy } = require('fanboy')
+const { Readable, Writable, pipeline } = require('readable-stream')
 
 function nop () {}
 
@@ -48,7 +50,7 @@ function headers (len, lat, enc) {
     'Fanboy-Version': version()
   }
   if (lat) {
-    headers['Latency'] = lat
+    headers.Latency = lat
   }
   if (enc) {
     headers['Content-Encoding'] = enc
@@ -70,15 +72,17 @@ function latency (t, log) {
   return lat
 }
 
-// A general responder for buffered payloads that applies gzip compression
-// if requested.
-//
-// - req IncomingMessage The request.
-// - res ServerResponse The response.
-// - statusCode Number The HTTP status code.
-// - payload Buffer | String The JSON payload.
-// - time Array | void The hi-res real time tuple of when the request hit.
-// - log The logger to use.
+/**
+ * A general responder for buffered payloads that applies gzip compressio
+ * if requested.
+ *
+ * @param req IncomingMessage The request.
+ * @param res ServerResponse The response.
+ * @param statusCode Number The HTTP status code.
+ * @param payload Buffer | String The JSON payload.
+ * @param time Array | void The hi-res real time tuple of when the request hit.
+ * @param log The logger to use.
+ */
 function respond (req, res, statusCode, payload, time, log) {
   assert(!res.finished, 'cannot respond more than once')
 
@@ -86,26 +90,32 @@ function respond (req, res, statusCode, payload, time, log) {
     res.removeListener('close', onclose)
     res.removeListener('finish', onfinish)
   }
+
   function onclose () {
     log.warn('connection terminated: ' + req.url)
     onfinish()
   }
+
   const gz = getGz(req)
+
   function lat () {
     if (time instanceof Array) {
       return latency(time, log)
     }
   }
+
   if (gz) {
     zlib.gzip(payload, (er, zipped) => {
       if (!res) return
       const h = headers(zipped.length, lat(), 'gzip')
+
       res.writeHead(statusCode, h)
       res.end(zipped)
     })
   } else {
     const len = Buffer.byteLength(payload, 'utf8')
     const h = headers(len, lat())
+
     res.writeHead(statusCode, h)
     res.end(payload)
   }
@@ -113,126 +123,85 @@ function respond (req, res, statusCode, payload, time, log) {
   res.on('finish', onfinish)
 }
 
-const whitelist = RegExp([
-  'fanboy: falling back on cache',
-  'fanboy: falling back on cache: ENOTFOUND',
-  'fanboy: guid',
-  'fanboy: unexpected response 400'
-].join('|'), 'i')
-
-// Assess error by its message returning `true`, if it’s OK to continue.
-function ok (er) {
-  let ok = false
-  if (er) {
-    const msg = er.message
-    if (msg) ok = msg.match(whitelist) !== null
-  }
-  return ok
+function root (_opts, cb) {
+  cb(null, 200, { name: 'fanboy', version: version() })
 }
 
-function crash (er, log) {
-  if (log && typeof log.fatal === 'function') log.fatal(er)
-  process.nextTick(() => { throw er })
-}
+function lookup ({ fanboy, params: { query }, ts }, cb) {
+  const queries = decodeURI(query).split(',')
+  const acc = []
 
-function errorHandler (er) {
-  if (ok(er)) {
-    this.log.warn(er.message)
-  } else {
-    const failure = 'fatal error'
-    const reason = er.message
-    const error = new Error(`${failure}: ${reason}`)
-    crash(error, this.log)
-  }
-}
+  pipeline(
+    new Readable({
+      read (_size) {
+        const next = queries.pop()
+        const guid = typeof next === 'string' ? next : null
 
-function root (opts, cb) {
-  cb(null, 200, JSON.stringify({
-    name: 'fanboy',
-    version: version()
-  }))
-}
-
-function pipe (s, q, opts, cb) {
-  const t = time()
-
-  let buf = ''
-
-  function ondata (chunk) {
-    buf += chunk
-  }
-
-  let er = null
-
-  function done () {
-    s.removeListener('data', ondata)
-    s.removeListener('end', done)
-    s.removeListener('error', onerror)
-    if (buf === '') buf = null
-    if (cb) cb(er, 200, buf, t)
-  }
-  function onerror (error) {
-    er = error
-    if (!ok(er)) done()
-  }
-
-  s.on('data', ondata)
-  s.on('error', onerror)
-  s.once('end', done)
-
-  if (q instanceof Array) {
-    const queries = q
-    let logged = false
-    queries.forEach((q) => {
-      if (!s.write(q) && !logged) {
-        opts.log.warn(q, 'ignoring back pressure')
-        logged = true
+        this.push(guid)
       }
-    })
-    s.end()
-  } else {
-    s.end(q)
-  }
-  return s
+    }),
+    new Writable({
+      write (chunk, _enc, cb) {
+        const guid = chunk.toString()
+
+        fanboy.lookup(guid, (error, item) => {
+          const found = podcast(item)
+
+          if (found) acc.push(found)
+          cb(error)
+        })
+      }
+    }),
+    error => {
+      cb(error, 200, acc, ts)
+    }
+  )
 }
 
-function lookup (opts, cb) {
-  const s = opts.fanboy.lookup()
-  const q = decodeURI(opts.params.query).split(',')
-  return pipe(s, q, opts, cb)
-}
-
-// Returns validated and trimmed query. If `str` is a valid query a trimmed
-// lower case copy without any whitespace is returned, else `null` is returned.
+/**
+ * Returns a valid and trimmed (lowercase without whitespace) query `String` or `null`.
+ */
 function trim (str) {
   if (typeof str !== 'string') return null
   if (str === '' || str === ' ') return null
   const q = str.replace(/\s\s+/g, ' ')
   if (q === ' ') return null
+
   return q.trim().toLowerCase()
 }
 
-function search (opts, cb) {
-  const query = opts.url.query
+function search ({ fanboy, url: { query }, log, ts }, cb) {
   const q = trim(query.q)
+
   if (!q) {
-    opts.log.warn('invalid query')
-    return cb(null, 200, '[]\r\n')
+    log.warn('invalid query')
+    return cb(null, 200, [], ts)
   }
-  const s = opts.fanboy.search()
-  return pipe(s, q, opts, cb)
+
+  fanboy.search(q, (error, items) => {
+    cb(error, 200, items.reduce((acc, item) => {
+      const z = podcast(item)
+
+      if (z) acc.push(z)
+
+      return acc
+    }, []), ts)
+  })
 }
 
-function suggest (opts, cb) {
-  const query = opts.url.query
+function suggest ({ fanboy, url: { query }, url: { query: { limit } }, log, ts }, cb) {
   const q = trim(query.q)
+
   if (!q) {
-    opts.log.warn('invalid query')
-    return cb(null, 200, '[]\r\n')
+    log.warn('invalid query')
+    return cb(null, 200, [], ts)
   }
-  const limit = parseInt(query.limit, 10) || -1
-  const s = opts.fanboy.suggest(limit)
-  return pipe(s, q, opts, cb)
+
+  const l = parseInt(limit, 10) || -1
+
+  fanboy.suggest(q, l, (error, terms) => {
+    cb(error, 200, terms, ts)
+  })
 }
 
 function defaults (opts) {
@@ -242,6 +211,7 @@ function defaults (opts) {
   opts.log = opts.log || { info: nop, warn: nop, debug: nop, error: nop }
   opts.ttl = opts.ttl || 24 * 3600 * 1000
   opts.cacheSize = opts.cacheSize || 16 * 1024 * 1024
+
   return opts
 }
 
@@ -259,12 +229,23 @@ function FanboyService (opts) {
   mkdirp.sync(this.location)
 }
 
-function ReqOpts (fanboy, log, params, splat, Url) {
+/**
+ * State passed around with each request.
+ *
+ * @param fanboy The Fanboy cache instance.
+ * @param log The log object.
+ * @param params The request parameters.
+ * @param splat Some wildcard parameters of the request.
+ * @param URL The URL of this request.
+ * @param ts A timestamp for monitoring.
+ */
+function ReqOpts (fanboy, log, params, splat, Url, ts) {
   this.fanboy = fanboy
   this.log = log
   this.params = params
   this.splat = splat
   this.url = Url
+  this.ts = ts
 }
 
 FanboyService.prototype.handleRequest = function (req, cb) {
@@ -272,7 +253,7 @@ FanboyService.prototype.handleRequest = function (req, cb) {
     throw new Error('callback required to handle request')
   }
 
-  const Url = url.parse(req.url, true)
+  const Url = parse(req.url, true)
 
   const route = this.hash.get(Url.pathname)
   if (route.handler === null) {
@@ -286,7 +267,8 @@ FanboyService.prototype.handleRequest = function (req, cb) {
     this.log,
     route.params,
     route.splat,
-    Url
+    Url,
+    time()
   )
 
   return route.handler(opts, cb)
@@ -305,6 +287,23 @@ FanboyService.prototype.setRoutes = function () {
   set('/suggest', suggest)
 }
 
+function crash (er, log) {
+  if (log && typeof log.fatal === 'function') log.fatal(er)
+  process.nextTick(() => { throw er })
+}
+
+// Assess error by its message returning `true`, if it’s OK to continue.
+function ok (er) {
+  let ok = false
+
+  if (er) {
+    const msg = er.message
+    if (msg) ok = msg.match(whitelist) !== null
+  }
+
+  return ok
+}
+
 FanboyService.prototype.start = function (cb) {
   const log = this.log
 
@@ -313,21 +312,30 @@ FanboyService.prototype.start = function (cb) {
     location: this.location,
     cacheSize: this.cacheSize
   }
-  log.info(info, 'start')
 
-  const cache = fanboy(this.location, {
+  log.info(info, 'starting')
+
+  const db = createLevelDB(this.location)
+  const cache = new Fanboy(db, {
     cacheSize: this.cacheSize,
     media: 'podcast',
-    result: podcast,
     ttl: this.ttl
   })
 
-  this.errorHandler = errorHandler.bind(this)
-  cache.on('error', this.errorHandler)
-
   this.fanboy = cache
-
   this.setRoutes()
+
+  const assess = er => {
+    if (ok(er)) {
+      log.warn(er.message)
+    } else {
+      const failure = 'fatal error'
+      const reason = er.message
+      const error = new Error(`${failure}: ${reason}`)
+
+      crash(error, this.log)
+    }
+  }
 
   const onrequest = (req, res) => {
     log.debug({ method: req.method, url: req.url }, 'request')
@@ -337,6 +345,7 @@ FanboyService.prototype.start = function (cb) {
         const payloads = {
           404: () => {
             log.warn({ method: req.method, url: req.url }, 'no route')
+
             const reason = req.url + ' is no route'
             statusCode = 404
             payload = JSON.stringify({
@@ -346,6 +355,7 @@ FanboyService.prototype.start = function (cb) {
           },
           405: () => {
             log.warn({ method: req.method, url: req.url }, 'not allowed')
+
             const reason = req.method + ' ' + req.url + ' is undefined'
             statusCode = 405
             payload = JSON.stringify({
@@ -354,18 +364,19 @@ FanboyService.prototype.start = function (cb) {
             })
           }
         }
+
         if (er.statusCode in payloads) {
           payloads[er.statusCode]()
-        } else if (ok(er)) {
-          if (!payload) {
-            return crash(er, log)
-          }
-          log.warn(er)
         } else {
-          return crash(er, log)
+          assess(er)
+        }
+
+        if (!payload) {
+          crash(new Error('payload must be truthy', log))
         }
       }
-      respond(req, res, statusCode, payload, time, log)
+
+      respond(req, res, statusCode, JSON.stringify(payload), time, log)
     }
 
     this.handleRequest(req, terminate)
@@ -379,6 +390,7 @@ FanboyService.prototype.start = function (cb) {
       port: port,
       sockets: http.globalAgent.maxSockets
     }
+
     log.info(info, 'listen')
     if (cb) cb(er)
   })
@@ -397,26 +409,4 @@ FanboyService.prototype.start = function (cb) {
   })
 
   this.server = server
-}
-
-const TEST = process.mainModule.filename.match(/test/) !== null
-
-if (TEST) {
-  FanboyService.prototype.stop = function (cb) {
-    this.server.close((er) => {
-      this.fanboy.close((er) => {
-        this.fanboy.removeAllListeners()
-        if (cb) cb(er)
-      })
-    })
-  }
-  exports.FanboyService = FanboyService
-  exports.defaults = defaults
-  exports.lookup = lookup
-  exports.nop = nop
-  exports.root = root
-  exports.search = search
-  exports.suggest = suggest
-  exports.trim = trim
-  exports.version = version
 }
