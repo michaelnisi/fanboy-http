@@ -89,13 +89,18 @@ Response
 
 ## Installation
 
-After installing our dependencies with [npm](https://www.npmjs.com), we can setup.
+After installing our dependencies with:
 
-`npm install`
+```
+$ npm i
+```
 
-On [SmartOS](https://www.joyent.com/smartos), setup installs our service with [SMF](https://docs.joyent.com/public-cloud/instances/infrastructure/images/smartos/managing-smartos/using-smf/basic-smf-commands).
+We can run the server locally on port 8383 with:
 
-`./boot/setup`
+```
+$ npm start
+```
+
 
 ## License
 
