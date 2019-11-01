@@ -1,11 +1,8 @@
 {
   "name": "fanboy-http",
-  "version": "4.0.1",
-  "description": "search iTunes for podcast feeds",
+  "version": "5.0.0",
+  "description": "HTTP/1.1 API for searching iTunes",
   "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
   "scripts": {
     "test": "standard --fix",
     "start": "FANBOY_LOG_LEVEL=30 node start.js | node_modules/bunyan/bin/bunyan -o short"
@@ -23,9 +20,9 @@
   },
   "homepage": "https://github.com/michaelnisi/fanboy-http",
   "engines": {
-    "node": ">=6"
+    "node": "12.12.0"
   },
-  "author": "Michael Nisi <michael.nisi@gmail.com> (http://troubled.pro)",
+  "author": "Michael Nisi (http://troubled.pro)",
   "dependencies": {
     "bunyan": "^1.8.5",
     "fanboy": "^7.0.3",
@@ -37,11 +34,7 @@
     "url-parse": "^1.4.7"
   },
   "devDependencies": {
-    "binary-split": "^1.0.5",
-    "nock": "^11.4.0",
-    "rimraf": "^2.6.1",
-    "standard": "^14.3.1",
-    "tap": "^14.6.9"
+    "standard": "^14.3.1"
   },
   "license": "MIT"
 }
